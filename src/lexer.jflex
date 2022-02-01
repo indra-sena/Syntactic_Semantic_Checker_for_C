@@ -197,7 +197,7 @@ IS = (u|U|l|L)*
     "?"			                     {System.out.println("dbsc" + "                     " + '\t' + yytext() + '\t' + yyline + '\t' + yycolumn);}
 
     {whiteSpace} {;}
-    [.] {;}
+    [^] {;}
 }
 
 
