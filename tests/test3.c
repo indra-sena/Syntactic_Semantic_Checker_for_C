@@ -1,4 +1,3 @@
-#include<stdlib.h>
 struct point
 {
     int x;
@@ -7,11 +6,12 @@ struct point
 
 int main(){
     /*distance between points*/
-
-    //point a
+    
     struct point a[6];
     struct point b;
     *(a+2).x = 1;
+
+    
     
     b.x = 3;
 
