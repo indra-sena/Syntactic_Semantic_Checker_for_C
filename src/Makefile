@@ -1,7 +1,8 @@
-all: check
+all: lexer parser compilation
 
-check: lexer.jflex
+lexer: lexer.jflex
 	jflex lexer.jflex
-	javac lexer.java
-	mv lexer?Yytoken.class ../bin/
-	mv lexer.class ../bin/
+parser: parser.jacc
+	jacc -v parser.jacc
+compilation: ./*java
+	javac ./*java
