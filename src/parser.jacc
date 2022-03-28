@@ -9,24 +9,40 @@ import java.io.*;
 
 %class Parser
 %interface ParserTokens
+%extends AST
 
-%semantic String
+%semantic helper
 
 %get       lexer.getToken()
 %next      lexer.nextToken()
 
 
-%token IDENTIFIER CONSTANT STRING_LITERAL SIZEOF
-%token PTR_OP INC_OP DEC_OP LEFT_OP RIGHT_OP LE_OP GE_OP EQ_OP NE_OP
-%token AND_OP OR_OP MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN ADD_ASSIGN
-%token SUB_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN AND_ASSIGN
-%token XOR_ASSIGN OR_ASSIGN TYPE_NAME
+%token<helper> IDENTIFIER I_CONSTANT F_CONSTANT STRING_LITERAL SIZEOF
+%token<helper> PTR_OP INC_OP DEC_OP LEFT_OP RIGHT_OP LE_OP GE_OP EQ_OP NE_OP
+%token<helper> AND_OP OR_OP MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN ADD_ASSIGN
+%token<helper> SUB_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN AND_ASSIGN
+%token<helper> XOR_ASSIGN OR_ASSIGN TYPE_NAME
 
-%token TYPEDEF EXTERN STATIC AUTO REGISTER
-%token CHAR SHORT INT LONG SIGNED UNSIGNED FLOAT DOUBLE CONST VOLATILE VOID
-%token STRUCT UNION ENUM ELLIPSIS
+%token<helper> TYPEDEF EXTERN STATIC AUTO REGISTER
+%token<helper> CHAR SHORT INT LONG SIGNED UNSIGNED FLOAT DOUBLE CONST VOLATILE VOID
+%token<helper> STRUCT UNION ENUM ELLIPSIS
 
-%token CASE DEFAULT IF ELSE SWITCH WHILE DO FOR GOTO CONTINUE BREAK RETURN
+%token<helper> CASE DEFAULT IF ELSE SWITCH WHILE DO FOR GOTO CONTINUE BREAK RETURN
+
+
+%left <helper> ',' '^' '|' ';' '{' '}' '[' ']' '(' ')' '+' '-' '%' '/' '*' '.' '>' '<' 
+%right <helper> '&' '=' '!' '~' ':' '?'
+
+
+%type<helper> assignment_operator
+%type<helper> primary_expression postfix_expression argument_expression_list unary_expression unary_operator cast_expression multiplicative_expression additive_expression 
+%type<helper> shift_expression relational_expression equality_expression and_expression exclusive_or_expression inclusive_or_expression logical_and_expression logical_or_expression
+%type<helper> conditional_expression assignment_expression  expression constant_expression declaration declaration_specifiers init_declarator_list init_declarator
+%type<helper> storage_class_specifier type_specifier struct_or_union_specifier struct_or_union struct_declaration_list struct_declaration specifier_qualifier_list struct_declarator_list
+%type<helper> struct_declarator enum_specifier enumerator_list enumerator type_qualifier declarator direct_declarator pointer type_qualifier_list parameter_type_list parameter_list
+%type<helper> parameter_declaration identifier_list type_name abstract_declarator direct_abstract_declarator initializer initializer_list statement labeled_statement compound_statement
+%type<helper> declaration_list statement_list expression_statement selection_statement iteration_statement jump_statement translation_unit external_declaration function_definition
+
 
 %start translation_unit
 
@@ -34,404 +50,406 @@ import java.io.*;
 %%
 
 primary_expression
-	: IDENTIFIER
-	| CONSTANT
-	| STRING_LITERAL
-	| '(' expression ')'
+	: IDENTIFIER											{$$=add($1);}				
+	| I_CONSTANT												{$$=add($1);}
+	| F_CONSTANT												{$$=add($1);}
+	| STRING_LITERAL										{$$=add($1);}
+	| '(' expression ')'									{$$=$2;}
 	;
 
 postfix_expression
-	: primary_expression
-	| postfix_expression '[' expression ']'
-	| postfix_expression '(' ')'
-	| postfix_expression '(' argument_expression_list ')'
-	| postfix_expression '.' IDENTIFIER
-	| postfix_expression PTR_OP IDENTIFIER
-	| postfix_expression INC_OP
-	| postfix_expression DEC_OP
+	: primary_expression       								{$$=$1;}
+	| postfix_expression '[' expression ']'					{$$=add(new helper("postfix_expression"), $1, $3);}
+	| postfix_expression '(' ')'							{$$=$1;}
+	| postfix_expression '(' argument_expression_list ')'   {$$=add(new helper("postfix_expression"), $1, $3);}
+	| postfix_expression '.' IDENTIFIER						{$$=add(new helper("postfix_expression.IDENTIFIER"), $1, add($3));}
+	| postfix_expression PTR_OP IDENTIFIER					{$$=add($2,$1,add($3));}
+	| postfix_expression INC_OP							    {$$=add($2, $1);}
+	| postfix_expression DEC_OP								{$$=add($2, $1);}
 	;
 
-argument_expression_list
-	: assignment_expression
-	| argument_expression_list ',' assignment_expression
+argument_expression_list									
+	: assignment_expression									{$$=$1;}
+	| argument_expression_list ',' assignment_expression    {$$=add(new helper("argument_expression_list"), $1, $3);}
 	;
 
 unary_expression
-	: postfix_expression
-	| INC_OP unary_expression
-	| DEC_OP unary_expression
-	| unary_operator cast_expression
-	| SIZEOF unary_expression
-	| SIZEOF '(' type_name ')'
+	: postfix_expression									{$$=$1;}
+	| INC_OP unary_expression								{$$=add($1,$2);}
+	| DEC_OP unary_expression								{$$=add($1,$2);}
+	| unary_operator cast_expression						{$$=add(new helper("unary_expression"),$1,$2);}
+	| SIZEOF unary_expression								{$$=add($1,$2);}
+	| SIZEOF '(' type_name ')'								{$$=add($1,$3);}
 	;
 
 unary_operator
-	: '&'
-	| '*'
-	| '+'
-	| '-'
-	| '~'
-	| '!'
+	: '&'		{$$=add(new helper("&"));}
+	| '*'		{$$=add(new helper("*"));}
+	| '+'		{$$=add(new helper("+"));}
+	| '-'		{$$=add(new helper("-"));}
+	| '~'		{$$=add(new helper("~"));}
+	| '!'		{$$=add(new helper("!"));}
 	;
 
 cast_expression
-	: unary_expression
-	| '(' type_name ')' cast_expression
+	: unary_expression									   {$$=$1;}
+	| '(' type_name ')' cast_expression                    {$$=add(new helper("cast_expression"), $2, $4);}
 	;
 
 multiplicative_expression
-	: cast_expression
-	| multiplicative_expression '*' cast_expression
-	| multiplicative_expression '/' cast_expression
-	| multiplicative_expression '%' cast_expression
+	: cast_expression									   {$$=$1;}
+	| multiplicative_expression '*' cast_expression        {$$=add(new helper("*"), $1, $3);}
+	| multiplicative_expression '/' cast_expression        {$$=add(new helper("/"), $1, $3);}
+	| multiplicative_expression '%' cast_expression        {$$=add(new helper("%"), $1, $3);}
 	;
 
 additive_expression
-	: multiplicative_expression
-	| additive_expression '+' multiplicative_expression
-	| additive_expression '-' multiplicative_expression
+	: multiplicative_expression								{$$=$1;}
+	| additive_expression '+' multiplicative_expression     {$$=add(new helper("+"), $1, $3);}
+	| additive_expression '-' multiplicative_expression     {$$=add(new helper("-"), $1, $3);}
 	;
 
 shift_expression
-	: additive_expression
-	| shift_expression LEFT_OP additive_expression
-	| shift_expression RIGHT_OP additive_expression
+	: additive_expression									{$$=$1;}
+	| shift_expression LEFT_OP additive_expression		{$$=add(new helper("<<"),$1,$3);}
+	| shift_expression RIGHT_OP additive_expression     {$$=add(new helper(">>"),$1,$3);}
 	;
 
-relational_expression
-	: shift_expression
-	| relational_expression '<' shift_expression
-	| relational_expression '>' shift_expression
-	| relational_expression LE_OP shift_expression
-	| relational_expression GE_OP shift_expression
+relational_expression	
+	: shift_expression										{$$=$1;}
+	| relational_expression '<' shift_expression   {$$=add(new helper("<"),$1,$3);}
+	| relational_expression '>' shift_expression   {$$=add(new helper(">"),$1,$3);}
+	| relational_expression LE_OP shift_expression {$$=add(new helper("<="),$1,$3);}
+	| relational_expression GE_OP shift_expression {$$=add(new helper(">="),$1,$3);}
 	;
 
 equality_expression
-	: relational_expression
-	| equality_expression EQ_OP relational_expression
-	| equality_expression NE_OP relational_expression
+	: relational_expression									{$$=$1;}
+	| equality_expression EQ_OP relational_expression       {$$=add(new helper("=="),$1,$3);}
+	| equality_expression NE_OP relational_expression       {$$=add(new helper("!="),$1,$3);}
 	;
 
 and_expression
-	: equality_expression
-	| and_expression '&' equality_expression
+	: equality_expression									       {$$=$1;}
+	| and_expression '&' equality_expression                       {$$=add(new helper("&"),$1,$3);}
 	;
 
 exclusive_or_expression
-	: and_expression
-	| exclusive_or_expression '^' and_expression
+	: and_expression											    {$$=$1;}
+	| exclusive_or_expression '^' and_expression			{$$=add(new helper("^"),$1,$3);}
 	;
 
 inclusive_or_expression
-	: exclusive_or_expression
-	| inclusive_or_expression '|' exclusive_or_expression
+	: exclusive_or_expression										{$$=$1;}
+	| inclusive_or_expression '|' exclusive_or_expression			{$$=add(new helper("|"),$1,$3);}
 	;
 
 logical_and_expression
-	: inclusive_or_expression
-	| logical_and_expression AND_OP inclusive_or_expression
+	: inclusive_or_expression										{$$=$1;}
+	| logical_and_expression AND_OP inclusive_or_expression			{$$=add(new helper("&&"),$1,$3);}
 	;
 
 logical_or_expression
-	: logical_and_expression
-	| logical_or_expression OR_OP logical_and_expression
+	: logical_and_expression										{$$=$1;}
+	| logical_or_expression OR_OP logical_and_expression			{$$=add(new helper("||"),$1,$3);}
 	;
 
+/*check & vs && */
 conditional_expression
-	: logical_or_expression
-	| logical_or_expression '?' expression ':' conditional_expression
+	: logical_or_expression												{$$=$1;}
+	| logical_or_expression '?' expression ':' conditional_expression    {$$=add(new helper("conditional_expression"),$1,$3,$5);}
 	;
 
 assignment_expression
-	: conditional_expression
-	| unary_expression assignment_operator assignment_expression
+	: conditional_expression													{$$=$1;}
+	| unary_expression assignment_operator assignment_expression		    {$$=add(new helper("assignment_expression"),$1,$2,$3);}
 	;
 
 assignment_operator
-	: '='
-	| MUL_ASSIGN
-	| DIV_ASSIGN
-	| MOD_ASSIGN
-	| ADD_ASSIGN
-	| SUB_ASSIGN
-	| LEFT_ASSIGN
-	| RIGHT_ASSIGN
-	| AND_ASSIGN
-	| XOR_ASSIGN
-	| OR_ASSIGN
+	: '='				{$$=add(new helper("="));}
+	| MUL_ASSIGN		{$$=add(new helper("*="));}
+	| DIV_ASSIGN		{$$=add(new helper("/="));}
+	| MOD_ASSIGN		{$$=add(new helper("%="));}
+	| ADD_ASSIGN		{$$=add(new helper("+="));}
+	| SUB_ASSIGN		{$$=add(new helper("-="));}
+	| LEFT_ASSIGN		{$$=add(new helper("<<="));}
+	| RIGHT_ASSIGN		{$$=add(new helper(">>="));}
+	| AND_ASSIGN		{$$=add(new helper("&="));}
+	| XOR_ASSIGN		{$$=add(new helper("^="));}
+	| OR_ASSIGN		   {$$=add(new helper("|="));}
 	;
-
+/*check here for error*/
 expression
-	: assignment_expression
-	| expression ',' assignment_expression
+	: assignment_expression										{$$=$1;}
+	| expression ',' assignment_expression						{$$=add(new helper("expression"),$1,$3);}
 	;
 
 constant_expression
-	: conditional_expression
+	: conditional_expression								   {$$=$1;}
 	;
 
 declaration
-	: declaration_specifiers ';'
-	| declaration_specifiers init_declarator_list ';'
+	: declaration_specifiers ';'								{$$=$1;}					
+	| declaration_specifiers init_declarator_list ';'			{$$=add(new helper("declaration"),$1,$2);}
 	;
 
 declaration_specifiers
-	: storage_class_specifier
-	| storage_class_specifier declaration_specifiers
-	| type_specifier
-	| type_specifier declaration_specifiers
-	| type_qualifier
-	| type_qualifier declaration_specifiers
+	: storage_class_specifier									{$$=$1;}
+	| storage_class_specifier declaration_specifiers			{$$=add(new helper("declaration_specifiers"),$1,$2);}
+	| type_specifier											{$$=$1;}
+	| type_specifier declaration_specifiers						{$$=add(new helper("declaration_specifiers"),$1,$2);}
+	| type_qualifier											{$$=$1;}
+	| type_qualifier declaration_specifiers						{$$=add(new helper("declaration_specifiers"),$1,$2);}
 	;
 
 init_declarator_list
-	: init_declarator
-	| init_declarator_list ',' init_declarator
+	: init_declarator											{$$=$1;}
+	| init_declarator_list ',' init_declarator					{$$=add(new helper("init_declarator_list"),$1,$3);}	
 	;
 
 init_declarator
-	: declarator
-	| declarator '=' initializer
+	: declarator											{$$=$1;}
+	| declarator '=' initializer							{$$=add(new helper("init_declarator"),$1,$3);}
 	;
 
 storage_class_specifier
-	: TYPEDEF
-	| EXTERN
-	| STATIC
-	| AUTO
-	| REGISTER
+	: TYPEDEF												{$$=add($1);}
+	| EXTERN												{$$=add($1);}
+	| STATIC												{$$=add($1);}
+	| AUTO												    {$$=add($1);}
+	| REGISTER												{$$=add($1);}
 	;
 
 type_specifier
-	: VOID
-	| CHAR
-	| SHORT
-	| INT
-	| LONG
-	| FLOAT
-	| DOUBLE
-	| SIGNED
-	| UNSIGNED
-	| struct_or_union_specifier
-	| enum_specifier
-	| TYPE_NAME
+	: VOID												{$$=add($1);}
+	| CHAR												{$$=add($1);}
+	| SHORT												{$$=add($1);}
+	| INT												{$$=add($1);}
+	| LONG												{$$=add($1);}
+	| FLOAT												{$$=add($1);}
+	| DOUBLE										    {$$=add($1);}
+	| SIGNED											{$$=add($1);}
+	| UNSIGNED										    {$$=add($1);}
+	| struct_or_union_specifier							{$$=$1;}
+	| enum_specifier								    {$$=$1;}
+	| TYPE_NAME											{$$=add($1);}
 	;
 
 struct_or_union_specifier
-	: struct_or_union IDENTIFIER '{' struct_declaration_list '}'
-	| struct_or_union '{' struct_declaration_list '}'
-	| struct_or_union IDENTIFIER
+	: struct_or_union IDENTIFIER '{' struct_declaration_list '}'  {$$=add(new helper("struct_or_union_specifier"),$1,add($2),$4);}
+	| struct_or_union '{' struct_declaration_list '}'             {$$=add(new helper("struct_or_union_specifier"),$1,$3);}
+	| struct_or_union IDENTIFIER								  {$$=add(new helper("struct_or_union_specifier"),$1,add($2));}
 	;
 
 struct_or_union
-	: STRUCT
-	| UNION
+	: STRUCT										    {$$=add($1);}
+	| UNION										        {$$=add($1);}
 	;
 
 struct_declaration_list
-	: struct_declaration
-	| struct_declaration_list struct_declaration
+	: struct_declaration											{$$=$1;}
+	| struct_declaration_list struct_declaration					{$$=add(new helper("struct_declaration_list"),$1,$2);}
 	;
 
 struct_declaration
-	: specifier_qualifier_list struct_declarator_list ';'
+	: specifier_qualifier_list struct_declarator_list ';'          {$$=add(new helper("struct_declaration"),$1,$2);}
 	;
 
 specifier_qualifier_list
-	: type_specifier specifier_qualifier_list
-	| type_specifier
-	| type_qualifier specifier_qualifier_list
-	| type_qualifier
+	: type_specifier specifier_qualifier_list					{$$=add(new helper("specifier_qualifier_list"),$1,$2);}
+	| type_specifier											{$$=$1;}
+	| type_qualifier specifier_qualifier_list					{$$=add(new helper("specifier_qualifier_list"),$1,$2);}
+	| type_qualifier											{$$=$1;}
 	;
 
 struct_declarator_list
-	: struct_declarator
-	| struct_declarator_list ',' struct_declarator
+	: struct_declarator											{$$=$1;}
+	| struct_declarator_list ',' struct_declarator				{$$=add(new helper("struct_declarator_list"),$1,$3);}              
 	;
 
 struct_declarator
-	: declarator
-	| ':' constant_expression
-	| declarator ':' constant_expression
+	: declarator											{$$=$1;}
+	| ':' constant_expression								{$$=$2;}
+	| declarator ':' constant_expression					{$$=add(new helper("struct_declarator"),$1,$3);}
 	;
 
 enum_specifier
-	: ENUM '{' enumerator_list '}'
-	| ENUM IDENTIFIER '{' enumerator_list '}'
-	| ENUM IDENTIFIER
+	: ENUM '{' enumerator_list '}'					{$$=add(new helper("enum_specifier"),add($1),$3);}
+	| ENUM IDENTIFIER '{' enumerator_list '}'	   	{$$=add(new helper("enum_specifier"),add($1),add($2),$4);}
+	| ENUM IDENTIFIER								{$$=add(new helper("enum_specifier"),add($1),add($2));}
 	;
 
 enumerator_list
-	: enumerator
-	| enumerator_list ',' enumerator
+	: enumerator											{$$=$1;}
+	| enumerator_list ',' enumerator						{$$=add(new helper("enumerator_list"),$1,$3);}
 	;
 
 enumerator
-	: IDENTIFIER
-	| IDENTIFIER '=' constant_expression
+	: IDENTIFIER										{$$=add($1);}
+	| IDENTIFIER '=' constant_expression                {$$=add(new helper("="),add($1),$3);}
 	;
 
-type_qualifier
-	: CONST
-	| VOLATILE
+type_qualifier	
+	: CONST										    {$$=add($1);}
+	| VOLATILE										{$$=add($1);}
 	;
 
 declarator
-	: pointer direct_declarator
-	| direct_declarator
+	: pointer direct_declarator	               					{$$=add(new helper("declarator"),$1,$2);}
+	| direct_declarator											{$$=$1;}
 	;
 
 direct_declarator
-	: IDENTIFIER
-	| '(' declarator ')'
-	| direct_declarator '[' constant_expression ']'
-	| direct_declarator '[' ']'
-	| direct_declarator '(' parameter_type_list ')'
-	| direct_declarator '(' identifier_list ')'
-	| direct_declarator '(' ')'
+	: IDENTIFIER										    	{$$=add($1);}
+	| '(' declarator ')'										{$$=$2;}
+	| direct_declarator '[' constant_expression ']'        		{$$=add(new helper("direct_declarator"),$1,$3);}
+	| direct_declarator '[' ']'							  		{$$=add(new helper("direct_declarator"),$1,add(new helper("[]")));}
+	| direct_declarator '(' parameter_type_list ')'        		{$$=add(new helper("direct_declarator"),$1,$3);}
+	| direct_declarator '(' identifier_list ')'       		    {$$=add(new helper("direct_declarator"),$1,$3);}
+	| direct_declarator '(' ')'									{$$=add(new helper("direct_declarator"),$1,add(new helper("()")));}
 	;
 
 pointer
-	: '*'
-	| '*' type_qualifier_list
-	| '*' pointer
-	| '*' type_qualifier_list pointer
+	: '*'														{$$=add(new helper("*"));}
+	| '*' type_qualifier_list									{$$=add(new helper("*"),$2);}
+	| '*' pointer												{$$=add(new helper("*"),$2);}
+	| '*' type_qualifier_list pointer		    				{$$=add(new helper("*"),$2,$3);}
 	;
 
 type_qualifier_list
-	: type_qualifier
-	| type_qualifier_list type_qualifier
+	: type_qualifier											{$$=$1;}
+	| type_qualifier_list type_qualifier						{$$=add(new helper("type_qualifier_list"),$1,$2);}
 	;
 
 
 parameter_type_list
-	: parameter_list
-	| parameter_list ',' ELLIPSIS
+	: parameter_list											{$$=$1;}
+	| parameter_list ',' ELLIPSIS								{$$=add(new helper("parameter_type_list"),$1,add($3));}
 	;
 
 parameter_list
-	: parameter_declaration
-	| parameter_list ',' parameter_declaration
+	: parameter_declaration										{$$=$1;}
+	| parameter_list ',' parameter_declaration                 	{$$=add(new helper("parameter_list"),$1,$3);}
 	;
 
 parameter_declaration
-	: declaration_specifiers declarator
-	| declaration_specifiers abstract_declarator
-	| declaration_specifiers
+	: declaration_specifiers declarator                 		{$$=add(new helper("parameter_declaration"),$1,$2);}
+	| declaration_specifiers abstract_declarator                {$$=add(new helper("parameter_declaration"),$1,$2);}
+	| declaration_specifiers									{$$=$1;}
 	;
 
 identifier_list
-	: IDENTIFIER
-	| identifier_list ',' IDENTIFIER
+	: IDENTIFIER												{$$=add($1);}
+	| identifier_list ',' IDENTIFIER							{$$=add(new helper("identifier_list"),$1,add($3));}
 	;
 
 type_name
-	: specifier_qualifier_list
-	| specifier_qualifier_list abstract_declarator
+	: specifier_qualifier_list									{$$=$1;}
+	| specifier_qualifier_list abstract_declarator		 		{$$=add(new helper("type_name"),$1,$2);}
 	;
 
 abstract_declarator
-	: pointer
-	| direct_abstract_declarator
-	| pointer direct_abstract_declarator
+	: pointer													{$$=$1;}
+	| direct_abstract_declarator								{$$=$1;}
+	| pointer direct_abstract_declarator 						{$$=add(new helper("abstract_declarator"),$1,$2);}
 	;
 
 direct_abstract_declarator
-	: '(' abstract_declarator ')'
-	| '[' ']'
-	| '[' constant_expression ']'
-	| direct_abstract_declarator '[' ']'
-	| direct_abstract_declarator '[' constant_expression ']'
-	| '(' ')'
-	| '(' parameter_type_list ')'
-	| direct_abstract_declarator '(' ')'
-	| direct_abstract_declarator '(' parameter_type_list ')'
+	: '(' abstract_declarator ')'								{$$=$2;}
+	| '[' ']'													{$$=add(new helper("[ ]"));}
+	| '[' constant_expression ']'								{$$=$2;}
+	| direct_abstract_declarator '[' ']'						{$$=add(new helper("direct_abstract_declarator"),$1,add(new helper("[]")));}
+	| direct_abstract_declarator '[' constant_expression ']'  	{$$ = add(new helper("direct_abstract_declarator"), $1, $3);;}
+	| '(' ')'													{$$ = add(new helper("( )"));}
+	| '(' parameter_type_list ')'								{$$=$2;}
+	| direct_abstract_declarator '(' ')'						{$$=add(new helper("direct_abstract_declarator"),$1,add(new helper("()")));}
+	| direct_abstract_declarator '(' parameter_type_list ')'    {$$=add(new helper("direct_abstract_declarator"),$1,$3);}
 	;
 
 initializer
-	: assignment_expression
-	| '{' initializer_list '}'
-	| '{' initializer_list ',' '}'
+	: assignment_expression											{$$=$1;}
+	| '{' initializer_list '}'										{$$=$2;}
+	| '{' initializer_list ',' '}'									{$$=add(new helper("initializer"),$2,add($3));}
 	;
 
 initializer_list
-	: initializer
-	| initializer_list ',' initializer
+	: initializer											{$$=$1;}
+	| initializer_list ',' initializer						{$$=add(new helper("initializer_list"),$1,$3);}
 	;
 
 statement
-	: labeled_statement
-	| compound_statement
-	| expression_statement
-	| selection_statement
-	| iteration_statement
-	| jump_statement
+	: labeled_statement												{$$=$1;}
+	| compound_statement											{$$=$1;}
+	| expression_statement											{$$=$1;}
+	| selection_statement											{$$=$1;}
+	| iteration_statement											{$$=$1;}
+	| jump_statement												{$$=$1;}
 	;
 
 labeled_statement
-	: IDENTIFIER ':' statement
-	| CASE constant_expression ':' statement
-	| DEFAULT ':' statement
+	: IDENTIFIER ':' statement			 		 {$$=add(new helper("labeled_statement"),add($1),$3);}
+	| CASE constant_expression ':' statement   	 {$$=add(new helper("labeled_statement"),add(new helper("case")),$2,$4);}
+	| DEFAULT ':' statement   			  		 {$$=add(new helper("labeled_statement"),add(new helper("default")),$3);}
 	;
 
 compound_statement
-	: '{' '}'
-	| '{' statement_list '}'
-	| '{' declaration_list '}'
-	| '{' declaration_list statement_list '}'
+	: '{' '}'    								{$$=add(new helper("{ }"));}
+	| '{' statement_list '}'					{$$=add(new helper("compound_statement"),$2);}
+	| '{' declaration_list '}'					{$$=add(new helper("compound_statement"),$2);}
+	| '{' declaration_list statement_list '}'   {$$=add(new helper("compound_statement"),$2,$3);}
 	;
 
 declaration_list
-	: declaration
-	| declaration_list declaration
+	: declaration											{$$=$1;}
+	| declaration_list declaration                        	{$$=add(new helper("declaration_list"),$1,$2);}
 	;
 
 statement_list
-	: statement
-	| statement_list statement
+	: statement												{$$=$1;}
+	| statement_list statement								{$$=add(new helper("statement_list"),$1,$2);}
 	;
 
 expression_statement
-	: ';'
-	| expression ';'
+	: ';'														{$$=add(new helper(";"));}
+	| expression ';'											{$$=$1;}
 	;
 
 selection_statement
-	: IF '(' expression ')' statement   
-	| IF '(' expression ')' statement ELSE statement
-	| SWITCH '(' expression ')' statement
+	: IF '(' expression ')' statement               		{$$=add(new helper("IF (expr) stmt"),$3,$5);}
+	| IF '(' expression ')' statement ELSE statement     	{$$=add(new helper("IF (expr) stmt ELSE stmt"),$3,$5,$7);}
+	| SWITCH '(' expression ')' statement              	 	{$$=add(new helper("SWITCH (expr) stmt"),$3,$5);}
 	;
 
 iteration_statement
-	: WHILE '(' expression ')' statement
-	| DO statement WHILE '(' expression ')' ';'
-	| FOR '(' expression_statement expression_statement ')' statement
-	| FOR '(' expression_statement expression_statement expression ')' statement
+	: WHILE '(' expression ')' statement                                        	{$$=add(new helper("WHILE (expr) stmt"),$3,$5);}
+	| DO statement WHILE '(' expression ')' ';'			                            {$$=add(new helper("DO stmt WHILE (expr)"),$2,$5);}
+	| FOR '(' expression_statement expression_statement ')' statement               {$$=add(new helper("FOR (expr_stmt expr_stmt) stmt"),$3,$4,$6);}
+	| FOR '(' expression_statement expression_statement expression ')' statement    {$$=add(new helper("FOR (expr_stmt expr_stmt expr) stmt"),$3,$4,$5,$7);}
 	;
 
 jump_statement
-	: GOTO IDENTIFIER ';'
-	| CONTINUE ';'
-	| BREAK ';'
-	| RETURN ';'
-	| RETURN expression ';'
+	: GOTO IDENTIFIER ';'						{$$=add(new helper("jump_statement"),add($1),add($2));}
+	| CONTINUE ';'						        {$$=add(new helper("continue"));}
+	| BREAK ';'						            {$$=add(new helper("break"));}
+	| RETURN ';'						        {$$=add(new helper("return"));}
+	| RETURN expression ';'						{$$=add(new helper("jump_statement"),add(new helper("return")),$2);}
 	;
 
 translation_unit
-	: external_declaration
-	| translation_unit external_declaration
+	: external_declaration										   {$$=$1;}
+	| translation_unit external_declaration                        {$$=add(new helper("translation_unit"),$1,$2);}
 	;
 
 external_declaration
-	: function_definition
-	| declaration
+	: function_definition									{$$=$1;}
+	| declaration											{$$=$1;}
 	;
 
 function_definition
-	: declaration_specifiers declarator declaration_list compound_statement
-	| declaration_specifiers declarator compound_statement
-	| declarator declaration_list compound_statement
-	| declarator compound_statement
+	: declaration_specifiers declarator declaration_list compound_statement       {$$=add(new helper("function_definition"),$1,$2,$3,$4);}
+	| declaration_specifiers declarator compound_statement                        {$$=add(new helper("function_definition"),$1,$2,$3);}
+	| declarator declaration_list compound_statement                              {$$=add(new helper("function_definition"),$1,$2,$3);}
+	| declarator compound_statement                                               {$$=add(new helper("function_definition"),$1,$2);}
 	;
 
 
@@ -477,12 +495,20 @@ function_definition
                 java.io.Reader reader = new java.io.InputStreamReader(stream, encodingName);
                 Parser parser = new Parser(reader);
                 parser.lexer.nextToken();
+
+				File file = new File("./ast.dot");
+				PrintStream st = new PrintStream(file);
+				System.setOut(st);
+				
+				AST ast = new AST();
+				ast.BeginGraph();
                 parser.parse();
-                /*
-				while ( !parser.lexer.getzzAtEOF() ){
-					System.out.println(parser.lexer.nextToken());
-					parser.parse();
-				}*/
+				ast.EndGraph();
+                // /*
+				// while ( !parser.lexer.getzzAtEOF() ){
+				// 	System.out.println(parser.lexer.nextToken());
+				// 	parser.parse();
+				// }*/
         		
             }
             catch (java.io.FileNotFoundException e) {

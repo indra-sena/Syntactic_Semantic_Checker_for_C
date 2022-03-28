@@ -9,7 +9,7 @@ import java.io.*;
 %int
 %{
     private int token;
-    private String semantic;
+    private helper semantic;
     public int lineNum;
     public int colNum;
     
@@ -28,7 +28,7 @@ import java.io.*;
         return colNum;
     }
 
-    public String getSemantic()
+    public helper getSemantic()
     {
         return semantic;
     }
@@ -81,89 +81,89 @@ IS = (u|U|l|L)*
     "//"    {yybegin(LCOMMENT);}
     "/*"[^*]*|[*]*"*/" {;}
 
-    "break"                          {semantic = yytext(); return BREAK;}
-    "case"                           {semantic = yytext(); return CASE;}
-    "char"                           {semantic = yytext(); return CHAR;}
-    "auto"                           {semantic = yytext(); return AUTO;}
-    "const"                          {semantic = yytext(); return CONST;}
-    "continue"	                     {semantic = yytext(); return CONTINUE;}
-    "default"	                     {semantic = yytext(); return DEFAULT;}
-    "do"		                     {semantic = yytext(); return DO;}
-    "double"	                     {semantic = yytext(); return DOUBLE;}
-    "else"		                     {semantic = yytext(); return ELSE;}
-    "enum"		                     {semantic = yytext(); return ENUM;}
-    "extern"	                     {semantic = yytext(); return EXTERN;}
-    "float"		                     {semantic = yytext(); return FLOAT;}
-    "for"		                     {semantic = yytext(); return FOR;}
-    "goto"		                     {semantic = yytext(); return GOTO;}
-    "if"		                     {semantic = yytext(); return IF;}
-    "int"		                     {semantic = yytext(); return INT;}
-    "long"		                     {semantic = yytext(); return LONG;}
-    "register"	                     {semantic = yytext(); return REGISTER;}
-    "return"	                     {semantic = yytext(); return RETURN;}
-    "short"		                     {semantic = yytext(); return SHORT;}
-    "signed"	                     {semantic = yytext(); return SIGNED;}
-    "sizeof"	                     {semantic = yytext(); return SIZEOF;}
-    "static"	                     {semantic = yytext(); return STATIC;}
-    "struct"	                     {semantic = yytext(); return STRUCT;}
-    "switch"	                     {semantic = yytext(); return SWITCH;}
-    "typedef"	                     {semantic = yytext(); return TYPEDEF;}
-    "union"		                     {semantic = yytext(); return UNION;}
-    "unsigned"	                     {semantic = yytext(); return UNSIGNED;}
-    "void"		                     {semantic = yytext(); return VOID;}
-    "volatile"	                     {semantic = yytext(); return VOLATILE;}
-    "while"		                     {semantic = yytext(); return WHILE;}
-    {letter}({letter}|{digit})*      {semantic = yytext(); return IDENTIFIER;}
-    {digit}+{IS}?                    {semantic = yytext(); return CONSTANT;}
-    '(\\.|[^\\'])'                   {semantic = yytext(); return CONSTANT;}
-    0[xX]{hexa}+{IS}?                {semantic = yytext(); return CONSTANT;}
-    {digit}+{exp}{FS}?               {semantic = yytext(); return CONSTANT;}
-    {digit}*"."{digit}+{exp}?{FS}?   {semantic = yytext(); return CONSTANT;}
-    {digit}+"."{digit}*{exp}?{FS}?   {semantic = yytext(); return CONSTANT;}
-    \"(\\.|[^\"])*\"                 {semantic = yytext(); return STRING_LITERAL;}
-    ">="                             {semantic = yytext(); return GE_OP;}
-    "<="                             {semantic = yytext(); return LE_OP;}
-    "+="                             {semantic = yytext(); return ADD_ASSIGN;}
-    "-="                             {semantic = yytext(); return SUB_ASSIGN;}
-    "*="                             {semantic = yytext(); return MUL_ASSIGN;}
-    "/="                             {semantic = yytext(); return DIV_ASSIGN;}
-    "%="                             {semantic = yytext(); return MOD_ASSIGN;}
-    "&="                             {semantic = yytext(); return AND_ASSIGN;}
-    "|="                             {semantic = yytext(); return OR_ASSIGN;}
-    "^="                             {semantic = yytext(); return XOR_ASSIGN;}
-    ">>"                             {semantic = yytext(); return RIGHT_OP;}
-    "<<"                             {semantic = yytext(); return LEFT_OP;}
-    "++"                             {semantic = yytext(); return INC_OP;}
-    "--"                             {semantic = yytext(); return DEC_OP;}
-    "->"                             {semantic = yytext(); return PTR_OP;}
-    "&&"                             {semantic = yytext(); return AND_OP;}
-    "||"                             {semantic = yytext(); return OR_OP;}
-    "!="                             {semantic = yytext(); return NE_OP;}
-    "=="                             {semantic = yytext(); return EQ_OP;}
-    ";"                              {semantic = yytext(); return ';';}
-    "{"                              {semantic = yytext(); return '{';}
-    "}"                              {semantic = yytext(); return '}';}
-    ","                              {semantic = yytext(); return ',';}
-    ":"                              {semantic = yytext(); return ':';}
-    "="			                     {semantic = yytext(); return '=';}
-    "("			                     {semantic = yytext(); return '(';}
-    ")"			                     {semantic = yytext(); return ')';}
-    "["	                             {semantic = yytext(); return '[';}
-    "]"	                             {semantic = yytext(); return ']';}
-    "."			                     {semantic = yytext(); return '.';}
-    "&"			                     {semantic = yytext(); return '&';}
-    "!"			                     {semantic = yytext(); return '!';}
-    "~"	                             {semantic = yytext(); return '~';}
-    "-"		                         {semantic = yytext(); return '-';}
-    "+"			                     {semantic = yytext(); return '+';}
-    "*"			                     {semantic = yytext(); return '*';}
-    "/"			                     {semantic = yytext(); return '/';}
-    "%"			                     {semantic = yytext(); return '%';}
-    "<"			                     {semantic = yytext(); return '<';}
-    ">"			                     {semantic = yytext(); return '>';}
-    "^"			                     {semantic = yytext(); return '^';}
-    "|"			                     {semantic = yytext(); return '|';}
-    "?"			                     {semantic = yytext(); return '?';}
+    "break"                          {semantic = new helper(yytext()); return BREAK;}
+    "case"                           {semantic = new helper(yytext()); return CASE;}
+    "char"                           {semantic = new helper(yytext()); return CHAR;}
+    "auto"                           {semantic = new helper(yytext()); return AUTO;}
+    "const"                          {semantic = new helper(yytext()); return CONST;}
+    "continue"	                     {semantic = new helper(yytext()); return CONTINUE;}
+    "default"	                     {semantic = new helper(yytext()); return DEFAULT;}
+    "do"		                     {semantic = new helper(yytext()); return DO;}
+    "double"	                     {semantic = new helper(yytext()); return DOUBLE;}
+    "else"		                     {semantic = new helper(yytext()); return ELSE;}
+    "enum"		                     {semantic = new helper(yytext()); return ENUM;}
+    "extern"	                     {semantic = new helper(yytext()); return EXTERN;}
+    "float"		                     {semantic = new helper(yytext()); return FLOAT;}
+    "for"		                     {semantic = new helper(yytext()); return FOR;}
+    "goto"		                     {semantic = new helper(yytext()); return GOTO;}
+    "if"		                     {semantic = new helper(yytext()); return IF;}
+    "int"		                     {semantic = new helper(yytext()); return INT;}
+    "long"		                     {semantic = new helper(yytext()); return LONG;}
+    "register"	                     {semantic = new helper(yytext()); return REGISTER;}
+    "return"	                     {semantic = new helper(yytext()); return RETURN;}
+    "short"		                     {semantic = new helper(yytext()); return SHORT;}
+    "signed"	                     {semantic = new helper(yytext()); return SIGNED;}
+    "sizeof"	                     {semantic = new helper(yytext()); return SIZEOF;}
+    "static"	                     {semantic = new helper(yytext()); return STATIC;}
+    "struct"	                     {semantic = new helper(yytext()); return STRUCT;}
+    "switch"	                     {semantic = new helper(yytext()); return SWITCH;}
+    "typedef"	                     {semantic = new helper(yytext()); return TYPEDEF;}
+    "union"		                     {semantic = new helper(yytext()); return UNION;}
+    "unsigned"	                     {semantic = new helper(yytext()); return UNSIGNED;}
+    "void"		                     {semantic = new helper(yytext()); return VOID;}
+    "volatile"	                     {semantic = new helper(yytext()); return VOLATILE;}
+    "while"		                     {semantic = new helper(yytext()); return WHILE;}
+    {letter}({letter}|{digit})*      {semantic = new helper(yytext()); return IDENTIFIER;}
+    {digit}+{IS}?                    {semantic = new helper(yytext()); return I_CONSTANT;}
+    '(\\.|[^\\'])'                   {semantic = new helper(yytext()); return I_CONSTANT;}
+    0[xX]{hexa}+{IS}?                {semantic = new helper(yytext()); return I_CONSTANT;}
+    {digit}+{exp}{FS}?               {semantic = new helper(yytext()); return F_CONSTANT;}
+    {digit}*"."{digit}+{exp}?{FS}?   {semantic = new helper(yytext()); return F_CONSTANT;}
+    {digit}+"."{digit}*{exp}?{FS}?   {semantic = new helper(yytext()); return F_CONSTANT;}
+    \"(\\.|[^\"])*\"                 {semantic = new helper(yytext()); return STRING_LITERAL;}
+    ">="                             {semantic = new helper(yytext()); return GE_OP;}
+    "<="                             {semantic = new helper(yytext()); return LE_OP;}
+    "+="                             {semantic = new helper(yytext()); return ADD_ASSIGN;}
+    "-="                             {semantic = new helper(yytext()); return SUB_ASSIGN;}
+    "*="                             {semantic = new helper(yytext()); return MUL_ASSIGN;}
+    "/="                             {semantic = new helper(yytext()); return DIV_ASSIGN;}
+    "%="                             {semantic = new helper(yytext()); return MOD_ASSIGN;}
+    "&="                             {semantic = new helper(yytext()); return AND_ASSIGN;}
+    "|="                             {semantic = new helper(yytext()); return OR_ASSIGN;}
+    "^="                             {semantic = new helper(yytext()); return XOR_ASSIGN;}
+    ">>"                             {semantic = new helper(yytext()); return RIGHT_OP;}
+    "<<"                             {semantic = new helper(yytext()); return LEFT_OP;}
+    "++"                             {semantic = new helper(yytext()); return INC_OP;}
+    "--"                             {semantic = new helper(yytext()); return DEC_OP;}
+    "->"                             {semantic = new helper(yytext()); return PTR_OP;}
+    "&&"                             {semantic = new helper(yytext()); return AND_OP;}
+    "||"                             {semantic = new helper(yytext()); return OR_OP;}
+    "!="                             {semantic = new helper(yytext()); return NE_OP;}
+    "=="                             {semantic = new helper(yytext()); return EQ_OP;}
+    ";"                              {semantic = new helper(yytext()); return ';';}
+    "{"                              {semantic = new helper(yytext()); return '{';}
+    "}"                              {semantic = new helper(yytext()); return '}';}
+    ","                              {semantic = new helper(yytext()); return ',';}
+    ":"                              {semantic = new helper(yytext()); return ':';}
+    "="			                     {semantic = new helper(yytext()); return '=';}
+    "("			                     {semantic = new helper(yytext()); return '(';}
+    ")"			                     {semantic = new helper(yytext()); return ')';}
+    "["	                             {semantic = new helper(yytext()); return '[';}
+    "]"	                             {semantic = new helper(yytext()); return ']';}
+    "."			                     {semantic = new helper(yytext()); return '.';}
+    "&"			                     {semantic = new helper(yytext()); return '&';}
+    "!"			                     {semantic = new helper(yytext()); return '!';}
+    "~"	                             {semantic = new helper(yytext()); return '~';}
+    "-"		                         {semantic = new helper(yytext()); return '-';}
+    "+"			                     {semantic = new helper(yytext()); return '+';}
+    "*"			                     {semantic = new helper(yytext()); return '*';}
+    "/"			                     {semantic = new helper(yytext()); return '/';}
+    "%"			                     {semantic = new helper(yytext()); return '%';}
+    "<"			                     {semantic = new helper(yytext()); return '<';}
+    ">"			                     {semantic = new helper(yytext()); return '>';}
+    "^"			                     {semantic = new helper(yytext()); return '^';}
+    "|"			                     {semantic = new helper(yytext()); return '|';}
+    "?"			                     {semantic = new helper(yytext()); return '?';}
     <<EOF>>                          {return ENDINPUT;}
     {whiteSpace} {;}
     [^] {;}
