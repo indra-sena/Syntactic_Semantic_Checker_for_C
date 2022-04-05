@@ -44,9 +44,9 @@ public class AST {
 
         if (x1 == null) {
             for (int i = 0; i < str.length(); i++) {
-                if (str.charAt(i) == '\\') {
-                    s += '\\';
-                }
+                // if (str.charAt(i) == '\\') {
+                //     s += '\\';
+                // }
                 s += str.charAt(i);
             }
         }
