@@ -1,11 +1,11 @@
 public class node {
-    int id;
-    String name;
-    long ival;
+    int id = 0;
+    String name = "";
+    long ival = 0;
     double dval;
-    char cval;
-    String nodeType;
-    String nodeLex;
-    int init;
-    int is_union;
+    char cval = '\0';
+    String nodeType = "";
+    String nodeLex = "";
+    int init = 0;
+    int is_union = 0;
 }

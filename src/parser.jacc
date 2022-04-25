@@ -11,9 +11,9 @@ import java.io.*;
 %interface ParserTokens
 %extends AST
 
-%semantic helper
+%semantic helper : lexer.semantic
 
-%get       lexer.getToken()
+%get       lexer.token
 %next      lexer.nextToken()
 
 
@@ -34,6 +34,7 @@ import java.io.*;
 %right <helper> '&' '=' '!' '~' ':' '?'
 
 
+%type<helper> M2 M3 M4 M5 M6 M7 M8 M9 M10 M11 M12 M13 M14 M15
 %type<helper> assignment_operator
 %type<helper> primary_expression postfix_expression argument_expression_list unary_expression unary_operator cast_expression multiplicative_expression additive_expression 
 %type<helper> shift_expression relational_expression equality_expression and_expression exclusive_or_expression inclusive_or_expression logical_and_expression logical_or_expression
@@ -50,478 +51,2047 @@ import java.io.*;
 %%
 
 primary_expression
-	: IDENTIFIER											{$$=add($1);}				
-	| I_CONSTANT												{$$=add($1);}
-	| F_CONSTANT												{$$=add($1);}
-	| STRING_LITERAL										{$$=add($1);}
-	| '(' expression ')'									{$$=$2;}
+	: IDENTIFIER
+	{
+		$$ = add($1);
+		symEntry t = lookup($1.str);
+
+		if(t != null) {
+			$$.nd.init = t.init;
+			$$.nd.nodeType = t.type;
+			$$.nd.nodeLex = $1.str;
+		}
+		else 
+		{
+			yyerror("Error: Use of undeclared identifier.");
+			$$.nd.nodeType="";
+		}
+	}
+	| I_CONSTANT
+	{
+		$$ = add($1);
+		
+		String str = $1.str;
+		int num = str.length();
+
+		//for L'c' type
+		if(str.charAt(0) == 'L'){
+			$$.nd.ival = str.charAt(num-2);
+		}
+
+		long val = 0;
+		//for 'ab' type
+		if(str.charAt(0) == '\''){
+			for(int i = 1;i<num-1;i++){
+				if(str.charAt(i) == '\\') i++;
+				val = val<<8;
+				val+= str.charAt(i);
+			}
+			$$.nd.ival = val;
+		}
+		if(str.charAt(num-1) != '\''){
+			//it is a number
+			$$.nd.ival = Long.parseLong(str);
+		}
+
+		int type=1;
+		int unsign=0;
+		//for type:
+		if(str.charAt(num-1) == '\''){
+			$$.nd.nodeType = "int";
+		}else{
+			for(int i = num-1;i>=0;i--){
+				if(str.charAt(i) == 'L' || str.charAt(i) == 'l') type++;
+				else{
+					if(str.charAt(i) == 'u' || str.charAt(i) == 'U') unsign=1;
+					else break;
+				}
+			}
+		}
+		if(type>=3) $$.nd.nodeType = "long long int";
+		if(type==2) $$.nd.nodeType = "long int";
+		if(type==1) $$.nd.nodeType = "int";
+		if(unsign==1) $$.nd.nodeType = "unsigned "+$$.nd.nodeType;
+		$$.nd.init = 1;
+	}
+	| F_CONSTANT												
+	{
+		$$ = add($1);
+		String str = $1.str;
+		$$.nd.dval = Double.parseDouble(str);
+		$$.nd.nodeType = "float";
+		if(str.indexOf('e')!=-1) $$.nd.nodeType = "double";
+		if(str.charAt(str.length()-1) == 'L') $$.nd.nodeType = "long double";
+		if(str.charAt(str.length()-1) == 'F') $$.nd.nodeType = "float"; 
+		$$.nd.init=1;
+	}
+	| STRING_LITERAL										
+	{
+		$$ = add($1);
+	}
+	| '(' expression ')'									
+	{
+		$$ = $2;
+	}
 	;
 
 postfix_expression
-	: primary_expression       								{$$=$1;}
-	| postfix_expression '[' expression ']'					{$$=add(new helper("postfix_expression"), $1, $3);}
-	| postfix_expression '(' ')'							{$$=$1;}
-	| postfix_expression '(' argument_expression_list ')'   {$$=add(new helper("postfix_expression"), $1, $3);}
-	| postfix_expression '.' IDENTIFIER						{$$=add(new helper("postfix_expression.IDENTIFIER"), $1, add($3));}
-	| postfix_expression PTR_OP IDENTIFIER					{$$=add($2,$1,add($3));}
-	| postfix_expression INC_OP							    {$$=add($2, $1);}
-	| postfix_expression DEC_OP								{$$=add($2, $1);}
+	: primary_expression       								
+	{
+		$$ = $1;
+	}
+	| postfix_expression '[' expression ']'					
+	{
+		$$ = add(new helper("postfix_expression"), $1, $3);
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+		String s=postfix($1.nd.nodeType,1);
+		if(!s.isEmpty()){ 
+			$$.nd.nodeType=s;
+			if(isInt($3.nd.nodeType)){
+				//TODO :check for array bound
+				// $$$$ 
+			}
+			else{
+				yyerror("Error: array subscript is not an integer");
+			}
+
+		}
+		else{
+			yyerror("Error:  Identifier is not of pointer type");
+		}
+	}
+	| postfix_expression '(' ')'							
+	{
+		$$ = $1;
+		$$.nd.init=1;
+		if(!funcMap.containsKey($1.nd.nodeLex)){
+			yyerror("Error: Function definition not defined.");
+		}
+		else{
+			symEntry s = lookup_in_table(GST,$1.nd.nodeLex);
+			$$.nd.nodeType = s.type;
+			$$.nd.nodeLex = $1.nd.nodeLex;
+			String x=func_check("",funcMap.get($1.nd.nodeLex));
+			if(!x.isEmpty()){
+				yyerror(x);
+			}
+		}	
+	}
+	| postfix_expression '(' argument_expression_list ')'   
+	{
+		$$ = add(new helper("postfix_expression"), $1, $3);
+		$$.nd.init=$3.nd.init;
+		if(!funcMap.containsKey($1.nd.nodeLex)){
+			yyerror("Error: Function definition not defined.");
+		}
+		else{
+			symEntry s = lookup_in_table(GST,$1.nd.nodeLex);
+			$$.nd.nodeType = s.type;
+			$$.nd.nodeLex = $1.nd.nodeLex;
+			String x=func_check(arg_list,funcMap.get($1.nd.nodeLex));
+			if(!x.isEmpty()){
+				yyerror(x);
+			}
+		}	 
+		arg_list = "";
+	}
+	| postfix_expression '.' IDENTIFIER						
+	{
+		$$ = add(new helper("postfix_expression.IDENTIFIER"), $1, add($3));
+		if(id_to_struct.containsKey($1.nd.nodeType)){
+			symEntry find = lookup_in_table(id_to_struct.get($1.nd.nodeType),$3.str);
+			if(find!=null){
+				$$.nd.nodeType = find.type;
+				$$.nd.init = find.init;
+				$$.nd.nodeLex = $1.nd.nodeLex + "." + $3.str;
+			}
+			else{
+				yyerror("Error: Undefined attribute access in structure.");
+			}
+		}
+		else{
+			yyerror("Error: Use of undeclared structure.");
+		}
+	}
+	| postfix_expression PTR_OP IDENTIFIER					
+	{
+		$$ = add($2,$1,add($3));
+		String type = $1.nd.nodeType;
+		type = type.substring(0,type.length()-1);
+		if(id_to_struct.containsKey(type)){
+			symEntry find = lookup_in_table(id_to_struct.get(type),$3.str);
+			if(find!=null){
+				$$.nd.nodeType = find.type;
+				$$.nd.init = find.init;
+				$$.nd.nodeLex = $1.nd.nodeLex + $2.str + $3.str;
+				
+			}
+			else{
+				yyerror("Error: Undefined attribute access in structure.");
+			}
+		}
+		else{
+			yyerror("Error: Use of undeclared structure.");
+		}
+	}
+	| postfix_expression INC_OP							    
+	{
+		$$ = add($2, $1);
+		$$.nd.init=$1.nd.init;
+		String s=postfix($1.nd.nodeType,3);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType=s;
+		}
+		else{
+			yyerror("Error: Increment operator not defined for this type");
+		}
+	}
+	| postfix_expression DEC_OP								
+	{
+		$$ = add($2, $1);
+		$$.nd.init=$1.nd.init;
+		String s=postfix($1.nd.nodeType,3);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType=s;
+		}
+		else{
+			yyerror("Error: Decrement operator not defined for this type");
+		}
+	}
 	;
 
 argument_expression_list									
-	: assignment_expression									{$$=$1;}
-	| argument_expression_list ',' assignment_expression    {$$=add(new helper("argument_expression_list"), $1, $3);}
+	: assignment_expression									
+	{
+		$$ = $1;
+		if(arg_list.equals("")){
+			arg_list += ($1.nd.nodeType);
+		}
+		else{
+			arg_list += ",";
+			arg_list += ($1.nd.nodeType);
+		}
+	}
+	| argument_expression_list ',' assignment_expression    
+	{
+		$$ = add(new helper("argument_expression_list"), $1, $3);
+		if(arg_list.equals("")){
+			arg_list += ($3.nd.nodeType);
+		}
+		else{
+			arg_list += ",";
+			arg_list += ($3.nd.nodeType);
+		}
+	}
 	;
 
 unary_expression
-	: postfix_expression									{$$=$1;}
-	| INC_OP unary_expression								{$$=add($1,$2);}
-	| DEC_OP unary_expression								{$$=add($1,$2);}
-	| unary_operator cast_expression						{$$=add(new helper("unary_expression"),$1,$2);}
-	| SIZEOF unary_expression								{$$=add($1,$2);}
-	| SIZEOF '(' type_name ')'								{$$=add($1,$3);}
+	: postfix_expression									{$$ = $1;}
+	| INC_OP unary_expression								
+	{
+		$$ = add($1,$2);
+		$$.nd.init=$2.nd.init;
+		String s=postfix($2.nd.nodeType,3);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType=s;
+			$$.nd.nodeLex = $2.nd.nodeLex;
+		}
+		else{
+			yyerror("Error: Increment operator not defined for this type");
+		}
+	}
+	| DEC_OP unary_expression								
+	{
+		$$ = add($1,$2);
+		$$.nd.init=$2.nd.init;
+		String s=postfix($2.nd.nodeType,3);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType=s;
+			$$.nd.nodeLex = $2.nd.nodeLex;
+		}
+		else{
+			yyerror("Error: Decrement operator not defined for this type");
+		}
+	}
+	| unary_operator cast_expression						
+	{
+		$$ = add(new helper("unary_expression"),$1,$2);
+		$$.nd.init=$2.nd.init;
+		String s=unary($2.nd.nodeType,$1.nd.name);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType=s;
+			$$.nd.nodeLex = $2.nd.nodeLex;
+		}
+		else{
+			yyerror("Error: Type inconsistent with unary operator");
+		}
+	}
+	| SIZEOF unary_expression								
+	{
+		$$ = add($1,$2);
+		$$.nd.nodeType="int";
+		$$.nd.init=1;
+		$$.nd.nodeLex = $2.nd.nodeLex;
+	}
+	| SIZEOF '(' type_name ')'								
+	{
+		$$ = add($1,$3);
+		$$.nd.nodeType="int";
+		$$.nd.init=1;
+		$$.nd.nodeLex = $3.nd.nodeLex;
+	}
 	;
 
 unary_operator
-	: '&'		{$$=add(new helper("&"));}
-	| '*'		{$$=add(new helper("*"));}
-	| '+'		{$$=add(new helper("+"));}
-	| '-'		{$$=add(new helper("-"));}
-	| '~'		{$$=add(new helper("~"));}
-	| '!'		{$$=add(new helper("!"));}
+	: '&'		{$$ = add($1);} // $$$$
+	| '*'		{$$ = add($1);}
+	| '+'		{$$ = add($1);}
+	| '-'		{$$ = add($1);}
+	| '~'		{$$ = add($1);}
+	| '!'		{$$ = add($1);}
 	;
 
 cast_expression
-	: unary_expression									   {$$=$1;}
-	| '(' type_name ')' cast_expression                    {$$=add(new helper("cast_expression"), $2, $4);}
+	: unary_expression									   
+	{
+		$$ = $1;
+	}
+	| '(' type_name ')' cast_expression                    
+	{
+		$$ = add(new helper("cast_expression"), $2, $4);
+		$$.nd.nodeType=$2.nd.nodeType;
+		$$.nd.init=$4.nd.init;
+		$$.nd.nodeLex = $4.nd.nodeLex;
+	}
 	;
 
 multiplicative_expression
-	: cast_expression									   {$$=$1;}
-	| multiplicative_expression '*' cast_expression        {$$=add(new helper("*"), $1, $3);}
-	| multiplicative_expression '/' cast_expression        {$$=add(new helper("/"), $1, $3);}
-	| multiplicative_expression '%' cast_expression        {$$=add(new helper("%"), $1, $3);}
+	: cast_expression									   
+	{
+		$$ = $1;
+	}
+	| multiplicative_expression '*' cast_expression
+	{
+		// $$ = add(new helper("*"), $1, $3);
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s=multiply($1.nd.nodeType, $3.nd.nodeType,'*');
+		if(s.equals("int")) $$.nd.nodeType="long long";
+		else if(s.equals("float")) $$.nd.nodeType="long double";
+		else{
+			yyerror("Error:  Incompatible type for * operator");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+		// %%%% these multiplicative expressions are messey
+	}
+	| multiplicative_expression '/' cast_expression        
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s=multiply($1.nd.nodeType, $3.nd.nodeType,'/');
+		if(s.equals("int")) $$.nd.nodeType="long long";
+		else if(s.equals("float")) $$.nd.nodeType="long double";
+		else{
+			yyerror("Error:  Incompatible type for / operator");
+		} 
+
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
+	| multiplicative_expression '%' cast_expression        
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s=multiply($1.nd.nodeType, $3.nd.nodeType,'%');
+		if(s.equals("int")) $$.nd.nodeType="long long";
+		else{
+			yyerror("Error:  Incompatible type for % operator");
+		} 
+
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 additive_expression
-	: multiplicative_expression								{$$=$1;}
-	| additive_expression '+' multiplicative_expression     {$$=add(new helper("+"), $1, $3);}
-	| additive_expression '-' multiplicative_expression     {$$=add(new helper("-"), $1, $3);}
+	: multiplicative_expression								
+	{
+		$$ = $1;
+	}
+	| additive_expression '+' multiplicative_expression     
+	{
+		// $$ = add(new helper("+"), $1, $3);
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= addition($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty()){
+			if(s.equals("int"))$$.nd.nodeType="long long";
+			else if(s.equals("float"))$$.nd.nodeType="long double";
+			else $$.nd.nodeType=s;
+		}
+		else{
+			yyerror("Error: Incompatible type for + operator");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
+	| additive_expression '-' multiplicative_expression     
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= addition($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty()){
+			if(s.equals("int")) $$.nd.nodeType="long long";
+			else if(s.equals("float"))$$.nd.nodeType="long double";
+			else $$.nd.nodeType=s;
+		}
+		else{
+			yyerror("Error: Incompatible type for - operator");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 shift_expression
-	: additive_expression									{$$=$1;}
-	| shift_expression LEFT_OP additive_expression		{$$=add(new helper("<<"),$1,$3);}
-	| shift_expression RIGHT_OP additive_expression     {$$=add(new helper(">>"),$1,$3);}
+	: additive_expression									
+	{
+		$$ = $1;
+	}
+	| shift_expression LEFT_OP additive_expression		
+	{
+		// $$ = add(new helper("<<"),$1,$3);
+		$$ = add($2, $1, $3);
+		// $$$$
+		if(isInt($1.nd.nodeType) && isInt($3.nd.nodeType)) 
+			$$.nd.nodeType= $1.nd.nodeType;
+		else{
+			yyerror("Error: Invalid operands to binary <<");
+		}
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
+	| shift_expression RIGHT_OP additive_expression     
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		if(isInt($1.nd.nodeType) && isInt($3.nd.nodeType)) 
+			$$.nd.nodeType= $1.nd.nodeType;
+		else{
+			yyerror("Error: Invalid operands to binary >>");
+		}
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 relational_expression	
-	: shift_expression										{$$=$1;}
-	| relational_expression '<' shift_expression   {$$=add(new helper("<"),$1,$3);}
-	| relational_expression '>' shift_expression   {$$=add(new helper(">"),$1,$3);}
-	| relational_expression LE_OP shift_expression {$$=add(new helper("<="),$1,$3);}
-	| relational_expression GE_OP shift_expression {$$=add(new helper(">="),$1,$3);}
+	: shift_expression										
+	{
+		$$ = $1;
+	}
+	| relational_expression '<' shift_expression   
+	{
+		// $$ = add(new helper("<"),$1,$3);
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= relational($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType="bool";
+			if(s.equals("Bool"))
+			{
+				yyerror("Warning: comparison between pointer and integer");
+			}
+		}
+		else{
+            yyerror("Error: invalid operands to binary <");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+
+	}
+	| relational_expression '>' shift_expression   
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= relational($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType="bool";
+			if(s.equals("Bool"))
+			{
+				yyerror("Warning: comparison between pointer and integer");
+			}
+		}
+		else{
+            yyerror("Error: invalid operands to binary >");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
+	| relational_expression LE_OP shift_expression
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		// System.err.println("r <= s " +"just checking " + $1.nd.nodeType + " " + $3.nd.nodeType);
+		String s= relational($1.nd.nodeType, $3.nd.nodeType);
+		// System.err.println("r <= s " + s + " " + $1.nd.nodeType + " " + $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType="bool";
+			if(s.equals("Bool"))
+			{
+				yyerror("Warning: comparison between pointer and integer");
+			}
+		}
+		else{
+            yyerror("Error: invalid operands to binary <=");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
+	| relational_expression GE_OP shift_expression 
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= relational($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType="bool";
+			if(s.equals("Bool"))
+			{
+				yyerror("Warning: comparison between pointer and integer");
+			}
+		}
+		else{
+            yyerror("Error: invalid operands to binary >=");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 equality_expression
-	: relational_expression									{$$=$1;}
-	| equality_expression EQ_OP relational_expression       {$$=add(new helper("=="),$1,$3);}
-	| equality_expression NE_OP relational_expression       {$$=add(new helper("!="),$1,$3);}
+	: relational_expression									{$$ = $1;}
+	| equality_expression EQ_OP relational_expression       
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= equality($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType="bool";
+			if(s.equals("Bool"))
+			{
+				yyerror("Warning: comparison between pointer and integer");
+			}
+		}
+		else{
+            yyerror("Error: invalid operands to binary ==");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
+	| equality_expression NE_OP relational_expression       
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= equality($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType="bool";
+			if(s.equals("Bool"))
+			{
+				yyerror("Warning: comparison between pointer and integer");
+			}
+		}
+		else{
+            yyerror("Error: invalid operands to binary !=");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 and_expression
-	: equality_expression									       {$$=$1;}
-	| and_expression '&' equality_expression                       {$$=add(new helper("&"),$1,$3);}
+	: equality_expression									       
+	{
+		$$ = $1;
+	}
+	| and_expression '&' equality_expression                       
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= bitwise($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			if(s.equals("bool")) $$.nd.nodeType=s;
+			else $$.nd.nodeType="long long";
+		}
+		else{
+            yyerror("Error: invalid operands to binary &");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 exclusive_or_expression
-	: and_expression											    {$$=$1;}
-	| exclusive_or_expression '^' and_expression			{$$=add(new helper("^"),$1,$3);}
+	: and_expression											    
+	{
+		$$ = $1;
+	}
+	| exclusive_or_expression '^' and_expression			
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= bitwise($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			if(s.equals("bool")) $$.nd.nodeType=s;
+			else $$.nd.nodeType="long long";
+		}
+		else{
+            yyerror("Error: invalid operands to binary ^");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 inclusive_or_expression
-	: exclusive_or_expression										{$$=$1;}
-	| inclusive_or_expression '|' exclusive_or_expression			{$$=add(new helper("|"),$1,$3);}
+	: exclusive_or_expression										
+	{
+		$$ = $1;
+	}
+	| inclusive_or_expression '|' exclusive_or_expression			
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		String s= bitwise($1.nd.nodeType, $3.nd.nodeType);
+		if(!s.isEmpty())
+		{
+			if(s.equals("bool")) $$.nd.nodeType=s;
+			else $$.nd.nodeType="long long";
+		}
+		else{
+            yyerror("Error: invalid operands to binary |");
+		}
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 logical_and_expression
-	: inclusive_or_expression										{$$=$1;}
-	| logical_and_expression AND_OP inclusive_or_expression			{$$=add(new helper("&&"),$1,$3);}
+	: inclusive_or_expression										
+	{
+		$$ = $1;
+	}
+	| logical_and_expression AND_OP inclusive_or_expression			
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		$$.nd.nodeType="bool";
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 logical_or_expression
-	: logical_and_expression										{$$=$1;}
-	| logical_or_expression OR_OP logical_and_expression			{$$=add(new helper("||"),$1,$3);}
+	: logical_and_expression										
+	{
+		$$ = $1;
+	}
+	| logical_or_expression OR_OP logical_and_expression			
+	{
+		$$ = add($2, $1, $3);
+		// $$$$
+		$$.nd.nodeType="bool";
+		
+		if($1.nd.init == 0 || $3.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
-/*check & vs && */
+/* $$$$ check & vs && */
 conditional_expression
-	: logical_or_expression												{$$=$1;}
-	| logical_or_expression '?' expression ':' conditional_expression    {$$=add(new helper("conditional_expression"),$1,$3,$5);}
+	: logical_or_expression												
+	{
+		$$ = $1;
+	}
+	| logical_or_expression '?' expression ':' conditional_expression    
+	{
+		$$ = add(new helper("conditional_expression"),$1,$3,$5);
+		String s=condition($3.nd.nodeType,$5.nd.nodeType);
+		if(!s.isEmpty()) $$.nd.nodeType=s;
+		else{
+            yyerror("Error: Type mismatch in conditional expression");
+		}
+
+		if($1.nd.init == 0 || $3.nd.init == 0 || $5.nd.init == 0)
+			$$.nd.init = 0;
+		else
+			$$.nd.init = 1;
+	}
 	;
 
 assignment_expression
-	: conditional_expression													{$$=$1;}
-	| unary_expression assignment_operator assignment_expression		    {$$=add(new helper("assignment_expression"),$1,$2,$3);}
+	: conditional_expression													
+	{
+		$$ = $1;
+	}
+	| unary_expression assignment_operator assignment_expression		    
+	{
+		$$ = add(new helper("assignment_expression"),$1,$2,$3);
+		String s=assign($1.nd.nodeType,$3.nd.nodeType,$2.nd.name);
+		if(!s.isEmpty())
+		{
+			$$.nd.nodeType=$1.nd.nodeType;
+			if(s.equals("warning")){
+                yyerror("Warning: Assignment with incompatible pointer type"); 
+			}
+			update_init($1.nd.nodeLex,$3.nd.init);
+		}
+		else{
+			String s1 = $3.nd.nodeType, s2 = $1.nd.nodeType;
+			if(s1.equals(""))
+				s1 = "undefined";
+			if(s2.equals(""))
+				s2 = "undefined";
+			yyerror("Error: Incompatible types when assigning type " + s1 +" to " + s2);
+		}
+	}
 	;
 
 assignment_operator
-	: '='				{$$=add(new helper("="));}
-	| MUL_ASSIGN		{$$=add(new helper("*="));}
-	| DIV_ASSIGN		{$$=add(new helper("/="));}
-	| MOD_ASSIGN		{$$=add(new helper("%="));}
-	| ADD_ASSIGN		{$$=add(new helper("+="));}
-	| SUB_ASSIGN		{$$=add(new helper("-="));}
-	| LEFT_ASSIGN		{$$=add(new helper("<<="));}
-	| RIGHT_ASSIGN		{$$=add(new helper(">>="));}
-	| AND_ASSIGN		{$$=add(new helper("&="));}
-	| XOR_ASSIGN		{$$=add(new helper("^="));}
-	| OR_ASSIGN		   {$$=add(new helper("|="));}
+	: '='				{$$ = add($1);}
+	| MUL_ASSIGN		{$$ = add($1);}
+	| DIV_ASSIGN		{$$ = add($1);}
+	| MOD_ASSIGN		{$$ = add($1);}
+	| ADD_ASSIGN		{$$ = add($1);}
+	| SUB_ASSIGN		{$$ = add($1);}
+	| LEFT_ASSIGN		{$$ = add($1);}
+	| RIGHT_ASSIGN		{$$ = add($1);}
+	| AND_ASSIGN		{$$ = add($1);}
+	| XOR_ASSIGN		{$$ = add($1);}
+	| OR_ASSIGN		   	{$$ = add($1);}
 	;
-/*check here for error*/
+
+/* $$$$ check here for error */
 expression
-	: assignment_expression										{$$=$1;}
-	| expression ',' assignment_expression						{$$=add(new helper("expression"),$1,$3);}
+	: assignment_expression										{$$ = $1;}
+	| expression ',' assignment_expression						{$$ = add(new helper("expression"),$1,$3);}
 	;
 
 constant_expression
-	: conditional_expression								   {$$=$1;}
+	: conditional_expression								   {$$ = $1;}
 	;
 
 declaration
-	: declaration_specifiers ';'								{$$=$1;}					
-	| declaration_specifiers init_declarator_list ';'			{$$=add(new helper("declaration"),$1,$2);}
+	: declaration_specifiers ';'								
+	{
+		$$ = $1;
+		var_type = "";
+	}					
+	| declaration_specifiers init_declarator_list ';'			
+	{
+		$$ = add(new helper("declaration"),$1,$2);
+		var_type = "";
+	}
 	;
 
 declaration_specifiers
-	: storage_class_specifier									{$$=$1;}
-	| storage_class_specifier declaration_specifiers			{$$=add(new helper("declaration_specifiers"),$1,$2);}
-	| type_specifier											{$$=$1;}
-	| type_specifier declaration_specifiers						{$$=add(new helper("declaration_specifiers"),$1,$2);}
-	| type_qualifier											{$$=$1;}
-	| type_qualifier declaration_specifiers						{$$=add(new helper("declaration_specifiers"),$1,$2);}
+	: storage_class_specifier
+	{
+		$$ = $1;
+		// System.err.println("1");
+	}
+	| storage_class_specifier declaration_specifiers
+	{
+		$$ = add(new helper("declaration_specifiers"),$1,$2);
+		// System.err.println("2");
+	}
+	| M2 type_specifier
+	{
+		$$ = $2;
+		// System.err.println("3");
+	}
+	| M2 type_specifier declaration_specifiers
+	{
+		$$ = add(new helper("declaration_specifiers"),$2,$3);
+		// System.err.println("4");
+	}
+	| type_qualifier
+	{
+		$$ = $1;
+		// System.err.println("5");
+	}
+	| type_qualifier declaration_specifiers
+	{
+		$$ = add(new helper("declaration_specifiers"),$1,$2);
+		// System.err.println("6");
+	}
+	;
+
+M2
+	:
+	{
+		var_type = "";
+	}
 	;
 
 init_declarator_list
-	: init_declarator											{$$=$1;}
-	| init_declarator_list ',' init_declarator					{$$=add(new helper("init_declarator_list"),$1,$3);}	
+	: init_declarator											{$$ = $1;}
+	| init_declarator_list ',' init_declarator					{$$ = add(new helper("init_declarator_list"),$1,$3);}	
 	;
 
 init_declarator
-	: declarator											{$$=$1;}
-	| declarator '=' initializer							{$$=add(new helper("init_declarator"),$1,$3);}
+	: declarator
+	{
+		$$ = $1;
+		symEntry find = lookup_in_curr($1.nd.nodeLex);
+		if(array_case2 != 0){
+			yyerror("Error: array size not defined.");
+			array_case2 = 0;
+		}
+		else{
+			// if(funcMatched){
+			// 	if(temp_arg.find($1.nd.nodeLex) == temp_arg.end()){
+			// 		yyerror("Error: variable not introduced in function definition.");
+			// 	}	
+			// 	else{
+			// 		tmp_map[$1.nd.nodeLex] = $1.nd.nodeType;
+			// 		temp_arg.erase($1.nd.nodeLex);
+			// 	}
+			// }
+			if(find != null){
+				yyerror("Error: redeclaration of the variable."); 
+			}
+			else{
+				make_symTable_entry($1.nd.nodeLex, $1.nd.nodeType, 0);
+				$$.nd.init = 0;
+			}
+		}
+	}
+	| declarator '=' initializer
+	{
+		$$ = add(new helper("init_declarator"), $1, $3);
+		symEntry find = lookup_in_curr($1.nd.nodeLex);
+		if(array_case2 != 0 && initializer_list_size == 0){
+			yyerror("Error: unexpected initialisation of array.");
+		}
+		if(check_type($1.nd.nodeType, $3.nd.nodeType)){
+			if(find != null){
+				yyerror("Error: redeclaration of the variable."); 
+			}
+			else{
+				make_symTable_entry($1.nd.nodeLex, $1.nd.nodeType, 1);
+				$$.nd.init = 1;
+			}
+			initializer_list_size = 0;
+			array_case2 = 0;
+		}
+		else{
+			yyerror("Error: unexpected initialisation of variable.");
+		}
+	}
 	;
 
 storage_class_specifier
-	: TYPEDEF												{$$=add($1);}
-	| EXTERN												{$$=add($1);}
-	| STATIC												{$$=add($1);}
-	| AUTO												    {$$=add($1);}
-	| REGISTER												{$$=add($1);}
+	: TYPEDEF												{$$ = add($1);}
+	| EXTERN												{$$ = add($1);}
+	| STATIC												{$$ = add($1);}
+	| AUTO												    {$$ = add($1);}
+	| REGISTER												{$$ = add($1);}
 	;
 
 type_specifier
-	: VOID												{$$=add($1);}
-	| CHAR												{$$=add($1);}
-	| SHORT												{$$=add($1);}
-	| INT												{$$=add($1);}
-	| LONG												{$$=add($1);}
-	| FLOAT												{$$=add($1);}
-	| DOUBLE										    {$$=add($1);}
-	| SIGNED											{$$=add($1);}
-	| UNSIGNED										    {$$=add($1);}
-	| struct_or_union_specifier							{$$=$1;}
-	| enum_specifier								    {$$=$1;}
-	| TYPE_NAME											{$$=add($1);}
+	: VOID
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "void";
+		}
+		else{
+			var_type += " void";
+		}
+	}
+	| CHAR
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "char";
+		}
+		else{
+			var_type += " char";
+		}
+	}
+	| SHORT
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "short";
+		}
+		else{
+			var_type += " short";
+		}
+	}
+	| INT
+	{
+		$$ = add($1);
+		// System.err.println("type_specifier int -> " + $1.str + " " + $$.nd.nodeType);
+		if(var_type == ""){
+			// System.err.println("type_specifier int");
+			var_type += "int";
+		}
+		else{
+			var_type += " int";
+		}
+	}
+	| LONG
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "long";
+		}
+		else{
+			var_type += " long";
+		}
+	}
+	| FLOAT
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "float";
+		}
+		else{
+			var_type += " float";
+		}
+	}
+	| DOUBLE
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "double";
+		}
+		else{
+			var_type += " double";
+		}
+	}
+	| SIGNED
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "signed";
+		}
+		else{
+			var_type += " signed";
+		}
+	}
+	| UNSIGNED
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "unsigned";
+		}
+		else{
+			var_type += " unsigned";
+		}
+	}
+	| struct_or_union_specifier
+	{
+		$$ = $1;
+		if(var_type == "")
+			var_type += $1.nd.nodeType;
+		else
+			var_type += " " + $1.nd.nodeType;
+	}
+	| enum_specifier								    {$$ = $1;}
+	| TYPE_NAME
+	{
+		$$ = add($1);
+		if(var_type == ""){
+			var_type += "void";
+		}
+		else{
+			var_type += " void";
+		}
+	}
 	;
 
 struct_or_union_specifier
-	: struct_or_union IDENTIFIER '{' struct_declaration_list '}'  {$$=add(new helper("struct_or_union_specifier"),$1,add($2),$4);}
-	| struct_or_union '{' struct_declaration_list '}'             {$$=add(new helper("struct_or_union_specifier"),$1,$3);}
-	| struct_or_union IDENTIFIER								  {$$=add(new helper("struct_or_union_specifier"),$1,add($2));}
+	: M5 M11 M10 '{' struct_declaration_list '}'
+	{
+		$$ = add(new helper("struct_or_union_specifier"),$1,$5);
+		curr_struct_table = struct_parent.get(curr_struct_table);
+		printSymTable(curr_table,$1.nd.nodeLex,"struct",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+		st_line_no.remove(st_line_no.size() - 1);
+		id_to_struct.put($1.nd.nodeType, curr_table);
+		id_to_struct_name.put($1.nd.nodeType, "struct_name " + $1.nd.nodeLex);
+		curr_table = parent.get(curr_table);
+		complete.put($1.nd.nodeType, 1);
+		$$.nd.nodeType = $1.nd.nodeType;
+		$$.nd.nodeLex = $1.nd.nodeLex;
+	}
+	| struct_or_union M11 M10 '{' struct_declaration_list '}'
+	{
+		$$ = add(new helper("struct_or_union_specifier"),$1,$5);
+		curr_struct_table = struct_parent.get(curr_struct_table);
+		struct_count++;
+		String name = "" + struct_count;
+		id_to_struct.put(name, curr_table);
+		printSymTable(curr_table,name,"struct",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+		st_line_no.remove(st_line_no.size() - 1);
+		curr_table = parent.get(curr_table);
+		id_to_struct_name.put(name, "struct_type_definition_2");
+		curr_struct_table.struct_table.put(name, new Pair(struct_count, $1.nd.is_union));
+		$$.nd.nodeType = name;
+		$$.nd.nodeLex = name;
+		complete.put($1.nd.nodeType, 1);
+	}
+	| struct_or_union IDENTIFIER
+	{
+		$$ = add(new helper("struct_or_union_specifier"),$1,add($2));
+		int id = lookup_struct($2.str, $1.nd.is_union);
+		if(id != 0){
+			$$.nd.nodeType = "" + id;
+			$$.nd.nodeLex = "" + id;
+		}
+		else{
+			yyerror("Error: structure not declared.");
+		}
+	}
+	;
+
+M5
+	:struct_or_union IDENTIFIER
+	{
+		$$ = add(new helper("Marker"),$1,add($2));
+		if(lookup_in_struct_curr_scope($2.str)){
+			yyerror("Error: Redeclaration of structure.");
+		}
+		else{
+			struct_count++;
+			curr_struct_table.struct_table.put($2.str, new Pair(struct_count, $1.nd.is_union));
+
+			$$.nd.nodeType = "" + struct_count;
+			$$.nd.nodeLex = $2.str;
+			complete.put($$.nd.nodeType, 0);
+		}
+	}
 	;
 
 struct_or_union
-	: STRUCT										    {$$=add($1);}
-	| UNION										        {$$=add($1);}
+	: STRUCT
+	{
+		$$ = add($1);
+		$$.nd.nodeType = $1.str;
+		$$.nd.nodeLex = $1.str;
+		$$.nd.is_union = 0;
+	}
+	| UNION
+	{
+		$$ = add($1);
+		$$.nd.nodeType = $1.str;
+		$$.nd.nodeLex = $1.str;
+		$$.nd.is_union = 1;
+	}
 	;
 
 struct_declaration_list
-	: struct_declaration											{$$=$1;}
-	| struct_declaration_list struct_declaration					{$$=add(new helper("struct_declaration_list"),$1,$2);}
+	: struct_declaration											{$$ = $1;}
+	| struct_declaration_list struct_declaration					{$$ = add(new helper("struct_declaration_list"),$1,$2);}
 	;
 
 struct_declaration
-	: specifier_qualifier_list struct_declarator_list ';'          {$$=add(new helper("struct_declaration"),$1,$2);}
+	: M6 struct_declarator_list ';'
+	{
+		$$ = add(new helper("struct_declaration"),$1,$2);
+		var_type = "";
+	}
+	;
+
+M6
+	: specifier_qualifier_list										{$$ = $1;}
 	;
 
 specifier_qualifier_list
-	: type_specifier specifier_qualifier_list					{$$=add(new helper("specifier_qualifier_list"),$1,$2);}
-	| type_specifier											{$$=$1;}
-	| type_qualifier specifier_qualifier_list					{$$=add(new helper("specifier_qualifier_list"),$1,$2);}
-	| type_qualifier											{$$=$1;}
+	: type_specifier specifier_qualifier_list
+	{
+		$$ = add(new helper("specifier_qualifier_list"),$1,$2);
+		$$.nd.nodeType = $1.nd.nodeType + $2.nd.nodeType;
+	}
+	| type_specifier
+	{
+		$$ = $1;
+		$$.nd.nodeType = $1.nd.nodeType;
+	}
+	| type_qualifier specifier_qualifier_list
+	{
+		$$ = add(new helper("specifier_qualifier_list"),$1,$2);
+		$$.nd.nodeType = $1.nd.nodeType + $2.nd.nodeType;
+	}
+	| type_qualifier
+	{
+		$$ = $1;
+		$$.nd.nodeType = $1.nd.nodeType;
+	}
 	;
 
 struct_declarator_list
-	: struct_declarator											{$$=$1;}
-	| struct_declarator_list ',' struct_declarator				{$$=add(new helper("struct_declarator_list"),$1,$3);}              
+	: M7														{$$ = $1;}
+	| struct_declarator_list ',' M7								{$$ = add(new helper("struct_declarator_list"),$1,$3);}              
+	;
+
+M7
+	:struct_declarator
+	{
+		$$ = $1;
+		accept = 0;
+	}
 	;
 
 struct_declarator
-	: declarator											{$$=$1;}
-	| ':' constant_expression								{$$=$2;}
-	| declarator ':' constant_expression					{$$=add(new helper("struct_declarator"),$1,$3);}
+	: declarator
+	{
+		$$ = $1;
+		if(lookup_in_curr($1.nd.nodeLex) != null){
+			yyerror("Error: redeclaration of variable.");
+		}
+		else{
+			// var_type == ""; int var_type == 
+			if(complete.containsKey(var_type) && (complete.get(var_type) == 0) && accept == 0){
+				yyerror("Error: Creating object before completing structure definition.");
+			}
+			else{
+				make_symTable_entry($1.nd.nodeLex,$1.nd.nodeType,0);
+			}
+		}
+	}
+	| ':' constant_expression								{$$ = $2;}
+	| declarator ':' constant_expression
+	{
+		$$ = add(new helper("struct_declarator"),$1,$3);
+		if(lookup_in_curr($1.nd.nodeLex) != null){
+			yyerror("Error: redeclaration of variable.");
+		}
+		else{
+			// var_type == ""; int var_type == 
+			if(complete.containsKey(var_type) && (complete.get(var_type) == 0) && accept == 0){
+				yyerror("Error: Creating object before completing structure definition.");
+			}
+			else{
+				make_symTable_entry($1.nd.nodeLex,$1.nd.nodeType,0);
+			}
+		}
+	}
 	;
 
 enum_specifier
-	: ENUM '{' enumerator_list '}'					{$$=add(new helper("enum_specifier"),add($1),$3);}
-	| ENUM IDENTIFIER '{' enumerator_list '}'	   	{$$=add(new helper("enum_specifier"),add($1),add($2),$4);}
-	| ENUM IDENTIFIER								{$$=add(new helper("enum_specifier"),add($1),add($2));}
+	: ENUM '{' enumerator_list '}'					{$$ = add(new helper("enum_specifier"),add($1),$3);}
+	| ENUM IDENTIFIER '{' enumerator_list '}'	   	{$$ = add(new helper("enum_specifier"),add($1),add($2),$4);}
+	| ENUM IDENTIFIER								{$$ = add(new helper("enum_specifier"),add($1),add($2));}
 	;
 
 enumerator_list
-	: enumerator											{$$=$1;}
-	| enumerator_list ',' enumerator						{$$=add(new helper("enumerator_list"),$1,$3);}
+	: enumerator											{$$ = $1;}
+	| enumerator_list ',' enumerator						{$$ = add(new helper("enumerator_list"),$1,$3);}
 	;
 
 enumerator
-	: IDENTIFIER										{$$=add($1);}
-	| IDENTIFIER '=' constant_expression                {$$=add(new helper("="),add($1),$3);}
+	: IDENTIFIER										{$$ = add($1);}
+	| IDENTIFIER '=' constant_expression                {
+		// $$ = add(new helper("="),add($1),$3);
+		$$ = add($2, add($1), $3);
+		// $$$$
+	}
 	;
 
 type_qualifier	
-	: CONST										    {$$=add($1);}
-	| VOLATILE										{$$=add($1);}
+	: CONST										    {$$ = add($1);}
+	| VOLATILE										{$$ = add($1);}
 	;
 
 declarator
-	: pointer direct_declarator	               					{$$=add(new helper("declarator"),$1,$2);}
-	| direct_declarator											{$$=$1;}
+	: pointer direct_declarator
+	{
+		$$ = add(new helper("direct_declarator"),$1,$2);
+		$$.nd.nodeType = $2.nd.nodeType + $1.nd.nodeType;
+		$$.nd.nodeLex = $2.nd.nodeLex;
+		accept = 1;
+	}
+	| direct_declarator											{$$ = $1;}
 	;
 
 direct_declarator
-	: IDENTIFIER										    	{$$=add($1);}
-	| '(' declarator ')'										{$$=$2;}
-	| direct_declarator '[' constant_expression ']'        		{$$=add(new helper("direct_declarator"),$1,$3);}
-	| direct_declarator '[' ']'							  		{$$=add(new helper("direct_declarator"),$1,add(new helper("[]")));}
-	| direct_declarator '(' parameter_type_list ')'        		{$$=add(new helper("direct_declarator"),$1,$3);}
-	| direct_declarator '(' identifier_list ')'       		    {$$=add(new helper("direct_declarator"),$1,$3);}
-	| direct_declarator '(' ')'									{$$=add(new helper("direct_declarator"),$1,add(new helper("()")));}
+	: IDENTIFIER
+	{
+		$$ = add($1);
+		$$.nd.nodeType = var_type;
+		$$.nd.nodeLex = $1.str;
+
+		// System.err.println("dd id " + $$.nd.nodeType + " " + $$.nd.nodeLex);
+	}
+	| '(' declarator ')'										{$$ = $2;}
+	| direct_declarator '[' constant_expression ']'
+	{
+		$$ = add(new helper("direct_declarator"),$1,$3);
+		$$.nd.nodeType = $1.nd.nodeType + "*";
+		$$.nd.nodeLex = $1.nd.nodeLex;
+		//$$.nd.size = $1.nd.size * $3.nd.iVal; // check whether constant_expression is evaluated or not
+	}
+	| direct_declarator '[' ']'
+	{
+		// $$$$ this looks fishy
+		$$ = add(new helper("direct_declarator"),$1,add(new helper("[]")));
+		$$.nd.nodeType = $1.nd.nodeType + "*";
+		$$.nd.nodeLex = $1.nd.nodeLex;
+		//$$.nd.size = $1.nd.size * initializer_list_size;
+		if(in_param == 0){
+			array_case2 = 1;
+		}
+	}
+	| direct_declarator '(' M8 M13 parameter_type_list M8 ')'
+	{
+		$$ = add(new helper("direct_declarator"),$1,$5);
+		$$.nd.nodeLex = $1.nd.nodeLex;
+		$$.nd.nodeType = $1.nd.nodeType;
+		funcName = $1.nd.nodeLex;
+	}
+	| direct_declarator '(' identifier_list ')'
+	{
+		$$ = add(new helper("direct_declarator"),$1,$3);
+		$$.nd.nodeLex = $1.nd.nodeLex;
+		$$.nd.nodeType = $1.nd.nodeType;
+	}
+	| direct_declarator '(' M13 M3 ')'
+	{
+		// $$$$
+		$$ = add(new helper("direct_declarator"),$1,add(new helper("()")));
+		$$.nd.nodeLex = $1.nd.nodeLex;
+		$$.nd.nodeType = $1.nd.nodeType;
+		funcName = $1.nd.nodeLex;
+	}
 	;
 
 pointer
-	: '*'														{$$=add(new helper("*"));}
-	| '*' type_qualifier_list									{$$=add(new helper("*"),$2);}
-	| '*' pointer												{$$=add(new helper("*"),$2);}
-	| '*' type_qualifier_list pointer		    				{$$=add(new helper("*"),$2,$3);}
+	: '*'
+	{
+		// $$ = add(new helper("*"));
+		$$ = add($1);
+		// $$$$
+		$$.nd.nodeType = "*";
+	}
+	| '*' type_qualifier_list
+	{
+		// $$ = add(new helper("*"),$2);
+		$$ = add($1, $2);
+		// $$$$
+		$$.nd.nodeType = $2.nd.nodeType + "*";
+	}
+	| '*' pointer
+	{
+		// $$ = add(new helper("*"),$2);
+		$$ = add($1, $2);
+		// $$$$
+		$$.nd.nodeType = $2.nd.nodeType + "*";
+	}
+	| '*' type_qualifier_list pointer
+	{
+		// $$ = add(new helper("*"),$2,$3);
+		$$ = add($1, $2, $3);
+		// $$$$
+		$$.nd.nodeType = $2.nd.nodeType + $3.nd.nodeType + "*";
+	}
 	;
 
 type_qualifier_list
-	: type_qualifier											{$$=$1;}
-	| type_qualifier_list type_qualifier						{$$=add(new helper("type_qualifier_list"),$1,$2);}
+	: type_qualifier											{$$ = $1;}
+	| type_qualifier_list type_qualifier						{$$ = add(new helper("type_qualifier_list"),$1,$2);}
 	;
 
 
 parameter_type_list
-	: parameter_list											{$$=$1;}
-	| parameter_list ',' ELLIPSIS								{$$=add(new helper("parameter_type_list"),$1,add($3));}
+	: parameter_list											{$$ = $1;}
+	| parameter_list ',' ELLIPSIS
+	{
+		$$ = add(new helper("parameter_type_list"),$1,add($3));
+		if(funcArg.equals("")){
+			funcArg += "...";
+		}
+		else{
+			funcArg += ",...";
+		}
+	}
 	;
 
 parameter_list
-	: parameter_declaration										{$$=$1;}
-	| parameter_list ',' parameter_declaration                 	{$$=add(new helper("parameter_list"),$1,$3);}
+	: parameter_declaration										{$$ = $1;}
+	| parameter_list ',' parameter_declaration                 	{$$ = add(new helper("parameter_list"),$1,$3);}
 	;
 
 parameter_declaration
-	: declaration_specifiers declarator                 		{$$=add(new helper("parameter_declaration"),$1,$2);}
-	| declaration_specifiers abstract_declarator                {$$=add(new helper("parameter_declaration"),$1,$2);}
-	| declaration_specifiers									{$$=$1;}
+	: declaration_specifiers declarator
+	{
+		$$ = add(new helper("parameter_declaration"),$1,$2);
+		symEntry find = lookup_in_curr($2.nd.nodeLex);
+		if(find != null){
+			yyerror("Error: redeclaration of variable.");
+		}
+		else{
+			make_symTable_entry2(temp_table,$2.nd.nodeLex,$2.nd.nodeType,1);
+		}
+		if(funcArg.equals("")){
+			funcArg += $2.nd.nodeType;
+		}
+		else{
+			funcArg += "," + $2.nd.nodeType;
+		}
+		var_type = "";
+	}
+	| declaration_specifiers abstract_declarator
+	{
+		$$ = add(new helper("parameter_declaration"),$1,$2);
+		var_type = "";
+	}
+	| declaration_specifiers
+	{
+		$$ = $1;
+		var_type = "";
+	}
+	;
+
+M8
+	:
+	{
+		in_param = 1 - in_param;
+	}
 	;
 
 identifier_list
-	: IDENTIFIER												{$$=add($1);}
-	| identifier_list ',' IDENTIFIER							{$$=add(new helper("identifier_list"),$1,add($3));}
+	: IDENTIFIER
+	{
+		$$ = add($1);
+		if(tmpstr.equals(""))
+			tmpstr += $1.str;
+		else{
+			tmpstr += ',';
+			tmpstr += $1.str;
+		}
+		if(!temp_arg.contains($1.str)){
+			temp_arg.add($1.str);
+		}
+		else{
+			yyerror("Error: reuse of same argument");
+		}
+	}
+	| identifier_list ',' IDENTIFIER
+	{
+		$$ = add(new helper("identifier_list"),$1,add($3));
+		if(tmpstr.equals(""))
+			tmpstr += $3.str;
+		else{
+			tmpstr += ',';
+			tmpstr += $3.str;
+		}
+		if(!temp_arg.contains($3.str)){
+			temp_arg.add($3.str);
+		}
+		else{
+			yyerror("Error: reuse of same argument");
+		}
+	}
 	;
 
 type_name
-	: specifier_qualifier_list									{$$=$1;}
-	| specifier_qualifier_list abstract_declarator		 		{$$=add(new helper("type_name"),$1,$2);}
+	: specifier_qualifier_list
+	{
+		$$ = $1;
+		$$.nd.nodeType = var_type;
+	}
+	| specifier_qualifier_list abstract_declarator
+	{
+		$$ = add(new helper("type_name"),$1,$2);
+		$$.nd.nodeType = $2.nd.nodeType;
+	}
 	;
 
 abstract_declarator
-	: pointer													{$$=$1;}
-	| direct_abstract_declarator								{$$=$1;}
-	| pointer direct_abstract_declarator 						{$$=add(new helper("abstract_declarator"),$1,$2);}
+	: pointer
+	{
+		$$ = $1;
+		$$.nd.nodeType = var_type + $1.nd.nodeType;
+	}
+	| direct_abstract_declarator								{$$ = $1;}
+	| pointer direct_abstract_declarator
+	{
+		$$ = add(new helper("abstract_declarator"),$1,$2);
+		$$.nd.nodeType = $2.nd.nodeType + $1.nd.nodeType;
+	}
 	;
 
 direct_abstract_declarator
-	: '(' abstract_declarator ')'								{$$=$2;}
-	| '[' ']'													{$$=add(new helper("[ ]"));}
-	| '[' constant_expression ']'								{$$=$2;}
-	| direct_abstract_declarator '[' ']'						{$$=add(new helper("direct_abstract_declarator"),$1,add(new helper("[]")));}
-	| direct_abstract_declarator '[' constant_expression ']'  	{$$ = add(new helper("direct_abstract_declarator"), $1, $3);;}
-	| '(' ')'													{$$ = add(new helper("( )"));}
-	| '(' parameter_type_list ')'								{$$=$2;}
-	| direct_abstract_declarator '(' ')'						{$$=add(new helper("direct_abstract_declarator"),$1,add(new helper("()")));}
-	| direct_abstract_declarator '(' parameter_type_list ')'    {$$=add(new helper("direct_abstract_declarator"),$1,$3);}
+	: '(' abstract_declarator ')'
+	{
+		$$ = $2;
+		$$.nd.nodeType = $2.nd.nodeType;
+	}
+	| '[' ']'
+	{
+		// $$$$ this looks fishy
+		$$ = add(new helper("[ ]"));
+		$$.nd.nodeType = var_type + "*";
+	}
+	| '[' constant_expression ']'
+	{
+		$$ = $2;
+		$$.nd.nodeType = var_type + "*";
+	}
+	| direct_abstract_declarator '[' ']'
+	{
+		// $$$$
+		$$ = add(new helper("direct_abstract_declarator"),$1,add(new helper("[]")));
+		$$.nd.nodeType = $1.nd.nodeType + "*";
+	}
+	| direct_abstract_declarator '[' constant_expression ']'
+	{
+		$$ = add(new helper("direct_abstract_declarator"), $1, $3);
+		$$.nd.nodeType = $1.nd.nodeType + "*";
+	}
+	| '(' ')'
+	{
+		// $$$$
+		$$ = add(new helper("( )"));
+		$$.nd.nodeType = var_type;
+	}
+	| '(' parameter_type_list ')'								{$$ = $2;}
+	| direct_abstract_declarator '(' ')'
+	{
+		// $$$$
+		$$ = add(new helper("direct_abstract_declarator"),$1,add(new helper("()")));
+		$$.nd.nodeType = $1.nd.nodeType;
+	}
+	| direct_abstract_declarator '(' parameter_type_list ')'
+	{
+		$$ = add(new helper("direct_abstract_declarator"),$1,$3);
+		$$.nd.nodeType = $1.nd.nodeType;
+	}
 	;
 
 initializer
-	: assignment_expression											{$$=$1;}
-	| '{' initializer_list '}'										{$$=$2;}
-	| '{' initializer_list ',' '}'									{$$=add(new helper("initializer"),$2,add($3));}
+	: assignment_expression											{$$ = $1;}
+	| '{' initializer_list '}'										{$$ = $2;}
+	| '{' initializer_list ',' '}'									{$$ = add(new helper("initializer"),$2,add($3));}
 	;
 
 initializer_list
-	: initializer											{$$=$1;}
-	| initializer_list ',' initializer						{$$=add(new helper("initializer_list"),$1,$3);}
+	: initializer
+	{
+		$$ = $1;
+		initializer_list_size++;
+	}
+	| initializer_list ',' initializer
+	{
+		$$ = add(new helper("initializer_list"),$1,$3);
+		initializer_list_size++;
+	}
 	;
 
 statement
-	: labeled_statement												{$$=$1;}
-	| compound_statement											{$$=$1;}
-	| expression_statement											{$$=$1;}
-	| selection_statement											{$$=$1;}
-	| iteration_statement											{$$=$1;}
-	| jump_statement												{$$=$1;}
+	: labeled_statement												{$$ = $1;}
+	| M12 M9 compound_statement M9									{$$ = $3;}
+	| expression_statement											{$$ = $1;}
+	| selection_statement											{$$ = $1;}
+	| iteration_statement											{$$ = $1;}
+	| jump_statement												{$$ = $1;}
+	;
+
+M9
+	:
+	{
+		simple_block = 1 - simple_block;
+	}
 	;
 
 labeled_statement
-	: IDENTIFIER ':' statement			 		 {$$=add(new helper("labeled_statement"),add($1),$3);}
-	| CASE constant_expression ':' statement   	 {$$=add(new helper("labeled_statement"),add(new helper("case")),$2,$4);}
-	| DEFAULT ':' statement   			  		 {$$=add(new helper("labeled_statement"),add(new helper("default")),$3);}
+	: IDENTIFIER ':' statement			 		 {$$ = add(new helper("labeled_statement"),add($1),$3);}
+	| CASE constant_expression ':' statement
+	{
+		// $$ = add(new helper("labeled_statement"),add(new helper("case")),$2,$4);
+		$$ = add(new helper("labeled_statement"),add($1),$2,$4);
+		// $$$$
+	}
+	| DEFAULT ':' statement
+	{
+		// $$ = add(new helper("labeled_statement"),add(new helper("default")),$3);
+		$$ = add(new helper("labeled_statement"),add($1),$3);
+		// $$$$
+	}
 	;
 
 compound_statement
-	: '{' '}'    								{$$=add(new helper("{ }"));}
-	| '{' statement_list '}'					{$$=add(new helper("compound_statement"),$2);}
-	| '{' declaration_list '}'					{$$=add(new helper("compound_statement"),$2);}
-	| '{' declaration_list statement_list '}'   {$$=add(new helper("compound_statement"),$2,$3);}
+	: M10 '{' '}'
+	{
+		// $$$$ this looks fishy
+		$$ = add(new helper("{ }"));
+		if(symTable_type.get(curr_table).equals("function")){
+			printSymTable(curr_table,funcName,"function",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		else{
+			printSymTable(curr_table,"BLOCK","BLOCK",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		curr_table = parent.get(curr_table);
+		curr_struct_table = struct_parent.get(curr_struct_table);
+	}
+	| M10 '{' statement_list '}'
+	{
+		$$ = add(new helper("compound_statement"),$3);
+
+		// System.err.println(symTable_type.get(curr_table) + " at line " + st_line_no.get(st_line_no.size() - 1));
+
+		if(symTable_type.get(curr_table).equals("function")){
+			printSymTable(curr_table,funcName,"function",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		else{
+			printSymTable(curr_table,"BLOCK","BLOCK",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		curr_table = parent.get(curr_table);
+		curr_struct_table = struct_parent.get(curr_struct_table);
+	}
+	| M10 '{' declaration_list '}'
+	{
+		$$ = add(new helper("compound_statement"),$3);
+		if(symTable_type.get(curr_table).equals("function")){
+			printSymTable(curr_table,funcName,"function",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		else{
+			printSymTable(curr_table,"BLOCK","BLOCK",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		curr_table = parent.get(curr_table);
+		curr_struct_table = struct_parent.get(curr_struct_table);
+	}
+	| M10 '{' declaration_list statement_list '}'
+	{
+		$$ = add(new helper("compound_statement"),$3,$4);
+
+		// System.err.println(symTable_type.get(curr_table) + " at line " + st_line_no.get(st_line_no.size() - 1));
+
+		if(symTable_type.get(curr_table).equals("function")){
+			printSymTable(curr_table,funcName,"function",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		else{
+			printSymTable(curr_table,"BLOCK","BLOCK",st_line_no.get(st_line_no.size() - 1),lexer.getlineNum());
+			st_line_no.remove(st_line_no.size() - 1);
+		}
+		curr_table = parent.get(curr_table);
+		curr_struct_table = struct_parent.get(curr_struct_table);
+	}
+	;
+
+M10
+	:
+	{
+		st_line_no.add(lexer.getlineNum());
+	}
 	;
 
 declaration_list
-	: declaration											{$$=$1;}
-	| declaration_list declaration                        	{$$=add(new helper("declaration_list"),$1,$2);}
+	: declaration											{$$ = $1;
+		// System.err.println("declaration_list -> declaration " + $1.nd.name);
+	}
+	| declaration_list declaration                        	{$$ = add(new helper("declaration_list"),$1,$2);
+		// System.err.println("declaration_list -> declaration_list declaration " + $1.nd.name + " " + $2.nd.name);
+	}
 	;
 
 statement_list
-	: statement												{$$=$1;}
-	| statement_list statement								{$$=add(new helper("statement_list"),$1,$2);}
+	: statement												{$$ = $1;
+		// System.err.println("statement_list -> statement : at line " + (lexer.getlineNum()+1) + ": " + $1.nd.name);
+	}
+	| statement_list statement								{$$ = add(new helper("statement_list"),$1,$2);
+		// System.err.println("statement_list -> statement_list statement : at line " + (lexer.getlineNum()+1) + ": " + $1.nd.name + " " + $2.nd.name);
+	}
 	;
 
 expression_statement
-	: ';'														{$$=add(new helper(";"));}
-	| expression ';'											{$$=$1;}
+	: ';'
+	{
+		// $$ = add(new helper(";"));
+		$$ = add($1);
+		// $$$$
+	}
+	| expression ';'											{$$ = $1;} // $$$$ complete typechecking
 	;
 
 selection_statement
-	: IF '(' expression ')' statement               		{$$=add(new helper("IF (expr) stmt"),$3,$5);}
-	| IF '(' expression ')' statement ELSE statement     	{$$=add(new helper("IF (expr) stmt ELSE stmt"),$3,$5,$7);}
-	| SWITCH '(' expression ')' statement              	 	{$$=add(new helper("SWITCH (expr) stmt"),$3,$5);}
+	: IF '(' expression ')' statement               		{$$ = add(new helper("IF (expr) stmt"),$3,$5);}
+	| IF '(' expression ')' statement ELSE statement     	{$$ = add(new helper("IF (expr) stmt ELSE stmt"),$3,$5,$7);}
+	| SWITCH '(' expression ')' statement              	 	{$$ = add(new helper("SWITCH (expr) stmt"),$3,$5);}
 	;
 
 iteration_statement
-	: WHILE '(' expression ')' statement                                        	{$$=add(new helper("WHILE (expr) stmt"),$3,$5);}
-	| DO statement WHILE '(' expression ')' ';'			                            {$$=add(new helper("DO stmt WHILE (expr)"),$2,$5);}
-	| FOR '(' expression_statement expression_statement ')' statement               {$$=add(new helper("FOR (expr_stmt expr_stmt) stmt"),$3,$4,$6);}
-	| FOR '(' expression_statement expression_statement expression ')' statement    {$$=add(new helper("FOR (expr_stmt expr_stmt expr) stmt"),$3,$4,$5,$7);}
+	: WHILE '(' expression ')' statement                                        	{$$ = add(new helper("WHILE (expr) stmt"),$3,$5);}
+	| DO statement WHILE '(' expression ')' ';'			                            {$$ = add(new helper("DO stmt WHILE (expr)"),$2,$5);}
+	| FOR '(' expression_statement expression_statement ')' statement               {$$ = add(new helper("FOR (expr_stmt expr_stmt) stmt"),$3,$4,$6);}
+	| FOR '(' expression_statement expression_statement expression ')' statement    {$$ = add(new helper("FOR (expr_stmt expr_stmt expr) stmt"),$3,$4,$5,$7);}
 	;
 
 jump_statement
-	: GOTO IDENTIFIER ';'						{$$=add(new helper("jump_statement"),add($1),add($2));}
-	| CONTINUE ';'						        {$$=add(new helper("continue"));}
-	| BREAK ';'						            {$$=add(new helper("break"));}
-	| RETURN ';'						        {$$=add(new helper("return"));}
-	| RETURN expression ';'						{$$=add(new helper("jump_statement"),add(new helper("return")),$2);}
+	: GOTO IDENTIFIER ';'						{$$ = add(new helper("jump_statement"),add($1),add($2));}
+	| CONTINUE ';'
+	{
+		// $$ = add(new helper("continue"));
+		$$ = add($1);
+		// $$$$
+	}
+	| BREAK ';'
+	{
+		// $$ = add(new helper("break"));
+		$$ = add($1);
+		// $$$$
+	}
+	| RETURN ';'
+	{
+		// $$ = add(new helper("return"));
+		$$ = add($1);
+		// $$$$
+		return_type = "void";
+	}
+	| RETURN expression ';'
+	{
+		// $$ = add(new helper("jump_statement"),add(new helper("return")),$2);
+		$$ = add(new helper("jump_statement"),add($1),$2);
+		// $$$$
+		return_type = $2.nd.nodeType;
+	}
 	;
 
 translation_unit
-	: external_declaration										   {$$=$1;}
-	| translation_unit external_declaration                        {$$=add(new helper("translation_unit"),$1,$2);}
+	: external_declaration										   {$$ = $1;}
+	| translation_unit external_declaration                        {$$ = add(new helper("translation_unit"),$1,$2);}
 	;
 
 external_declaration
-	: function_definition									{$$=$1;}
-	| declaration											{$$=$1;}
+	: function_definition									{$$ = $1;}
+	| declaration											{$$ = $1;}
 	;
 
 function_definition
-	: declaration_specifiers declarator declaration_list compound_statement       {$$=add(new helper("function_definition"),$1,$2,$3,$4);}
-	| declaration_specifiers declarator compound_statement                        {$$=add(new helper("function_definition"),$1,$2,$3);}
-	| declarator declaration_list compound_statement                              {$$=add(new helper("function_definition"),$1,$2,$3);}
-	| declarator compound_statement                                               {$$=add(new helper("function_definition"),$1,$2);}
+	: declaration_specifiers declarator M3 M4 declaration_list compound_statement M4
+	{
+		$$ = add(new helper("function_definition"),$1,$2,$5,$6);
+		int x = 0;
+		String tmp = "";
+		while(x < tmpstr.length()){
+			if(tmpstr.charAt(x) == ','){
+				if(funcArg.equals("")){
+					funcArg += tmp_map.get(tmp);
+				}
+				else{
+					funcArg += "," + tmp_map.get(tmp);
+				}
+				tmp = "";
+			}
+			else{
+				tmp += tmpstr.charAt(x);
+			}
+			x++;
+		}
+		if(funcArg.equals("")){
+			funcArg += tmp_map.get(tmp);
+		}
+		else{
+			funcArg += "," + tmp_map.get(tmp);
+		}
+		if(is_struct($2.nd.nodeType) || is_struct(return_type)){
+			if(!(return_type.equals($2.nd.nodeType))){
+				yyerror("Error: Return type not consistent with output type of function.");
+			}
+		}
+		else{
+			if(!(return_type.equals($2.nd.nodeType))){
+				// yyerror("Warning: Implicit typecasting at return type.");
+				yyerror("Warning: Implicit typecasting at return type.1");
+				// $$$$
+			}
+		}
+		if(!funcMap.containsKey($2.nd.nodeLex)){
+			if(lookup($2.nd.nodeLex) == null){
+				funcMap.put($2.nd.nodeLex, funcArg);
+				make_symTable_entry($2.nd.nodeLex, $2.nd.nodeType, 0);
+			}
+			else{
+				yyerror("Error: redeclaration of the function.");
+			}
+		}
+		else{
+			yyerror("Error: redeclaration of the function.");
+		}
+		funcArg = "";
+		tmpstr = "";
+		tmp_map.clear();
+		var_type = "";
+		return_type = "";
+	}
+	| M14 M4 compound_statement M4
+	{
+		$$ = add(new helper("function_definition"),$1,$3);
+		if(is_struct($2.nd.nodeType) || is_struct(return_type)){
+			if(!(return_type.equals($2.nd.nodeType))){
+				yyerror("Error: Return type not consistent with output type of function.");
+			}
+		}
+		else{
+			if(!(return_type.equals($2.nd.nodeType))){
+				// yyerror("Warning: Implicit typecasting at return type.");
+				yyerror("Warning: Implicit typecasting at return type.2 r " + return_type + " m1 " + $1.nd.nodeType + " m2 " + $1.nd.nodeLex + " m2 " + $1.nd.name);
+				yyerror("Warning: Implicit typecasting at return type.2 r " + return_type + " n1 " + $2.nd.nodeType + " n2 " + $2.nd.nodeLex + " n2 " + $2.nd.name);
+				yyerror("Warning: Implicit typecasting at return type.2 r " + return_type + " c1 " + $3.nd.nodeType + " c2 " + $3.nd.nodeLex + " c2 " + $3.nd.name);
+				// $$$$
+			}
+		}
+		return_type = "";
+	}
+	| declarator M3 M4 declaration_list compound_statement M4
+	{
+		$$ = add(new helper("function_definition"),$1,$4,$5);
+		int x = 0;
+		String tmp = "";
+		if(is_struct("int") || is_struct(return_type)){
+			if(!return_type.equals("int")){
+				yyerror("Error: Return type not consistent with output type of function.");
+			}
+		}
+		else{
+			if(!return_type.equals("int")){
+				// yyerror("Warning: Implicit typecasting at return type.");
+				yyerror("Warning: Implicit typecasting at return type.3");
+				// $$$$
+			}
+		}
+		return_type = "";
+		while(x < tmpstr.length()){
+			if(tmpstr.charAt(x) == ','){
+				if(funcArg.equals("")){
+					funcArg += tmp_map.get(tmp);
+				}
+				else{
+					funcArg += "," + tmp_map.get(tmp);
+				}
+				tmp = "";
+			}
+			else{
+				tmp += tmpstr.charAt(x);
+			}
+			x++;
+		}
+		if(funcArg.equals("")){
+			funcArg += tmp_map.get(tmp);
+		}
+		else{
+			funcArg += "," + tmp_map.get(tmp);
+		}
+		if(!funcMap.containsKey($1.nd.nodeLex)){
+			if(lookup($1.nd.nodeLex) == null){
+				funcMap.put($1.nd.nodeLex, funcArg);
+				make_symTable_entry($1.nd.nodeLex, "int", 0);
+			}
+			else{
+				yyerror("Error: redeclaration of the function.");
+			}
+		}
+		else{
+			yyerror("Error: redeclaration of the function.");
+		}
+		funcArg = "";
+		tmpstr = "";
+		tmp_map.clear();
+	}
+	| M15 M4 compound_statement M4
+	{
+		$$ = add(new helper("function_definition"),$1,$3);
+		if(is_struct("int") || is_struct(return_type)){
+			if(!return_type.equals("int")){
+				yyerror("Error: Return type not consistent with output type of function.");
+			}
+		}
+		else{
+			if(!return_type.equals("int")){
+				// yyerror("Warning: Implicit typecasting at return type.");
+				yyerror("Warning: Implicit typecasting at return type.4");
+				// $$$$
+			}
+		}
+		return_type = "";
+	}
 	;
 
+M3
+	:
+	{
+		symTable_h temp = new symTable_h();
+		struct_table temp2 = new struct_table();
+		struct_parent.put(temp2, curr_struct_table);
+		curr_struct_table = temp2;
+		parent.put(temp, curr_table);
+		curr_table = temp;
+		symTable_type.put(curr_table, "function");
+	}
+	;
+
+M11
+	:
+	{
+		symTable_h temp = new symTable_h();
+		struct_table temp2 = new struct_table();
+		struct_parent.put(temp2, curr_struct_table);
+		curr_struct_table = temp2;
+		parent.put(temp, curr_table);
+		curr_table = temp;
+		symTable_type.put(curr_table, "struct");
+	}
+	;
+
+M12
+	:
+	{
+		symTable_h temp = new symTable_h();
+		struct_table temp2 = new struct_table();
+		struct_parent.put(temp2, curr_struct_table);
+		curr_struct_table = temp2;
+		parent.put(temp, curr_table);
+		curr_table = temp;
+		// symTable_type.put(curr_table, "block");
+		symTable_type.put(curr_table, "BLOCK");
+	}
+;
+
+M4
+	:
+	{
+		funcMatched = 1 - funcMatched;
+		if(funcMatched == 0){
+			if(!temp_arg.isEmpty()){
+				yyerror("Error: definition of all parameters is not specified.");
+			}
+			temp_arg.clear();
+			funcName = "";
+		}
+	}
+	;
+
+M13 
+	:
+	{
+		temp_table = new symTable_h();
+		struct_table temp = new struct_table();
+		struct_parent.put(temp, curr_struct_table);
+		curr_struct_table = temp;
+		symTable_type.put(temp_table, "function");
+	}
+	;
+
+M14
+	:declaration_specifiers declarator
+	{
+		$$ = add(new helper("Marker14"),$1,$2);
+		$$.nd.nodeType = $2.nd.nodeType;
+		// System.err.println("ndty " + $1.nd.nodeType + " " + $2.nd.nodeLex);
+		if(!funcMap.containsKey($2.nd.nodeLex)){
+			if(lookup($2.nd.nodeLex) == null){
+				funcMap.put($2.nd.nodeLex, funcArg);
+				make_symTable_entry($2.nd.nodeLex, $2.nd.nodeType, 0);
+			}
+			else{
+				yyerror("Error: redeclaration of the function.");
+			}
+		}
+		else{
+			yyerror("Error: redeclaration of the function.");
+		}
+		funcArg = "";
+		var_type = "";
+		parent.put(temp_table, curr_table);
+		curr_table = temp_table;
+	}
+	;
+
+M15
+	:declarator
+	{
+		$$ = $1;
+		if(!funcMap.containsKey($1.nd.nodeLex)){
+			if(lookup($1.nd.nodeLex) == null){
+				 funcMap.put($1.nd.nodeLex, funcArg);
+				 make_symTable_entry($1.nd.nodeLex, "int", 0);
+			}
+			else{
+				yyerror("Error: redeclaration of the function.");
+			}
+		}
+		else{
+			yyerror("Error: redeclaration of the function.");
+		}
+		funcArg = "";
+		parent.put(temp_table, curr_table);
+		curr_table = temp_table;
+	}
+	;
 
 %%
 
+	Set<String> temp_arg = new HashSet<String>(); // to store identifier list in function declaration 1
+	int funcMatched = 0; // to store whether rule corresponding to function is matched.
+	String var_type = ""; // to store variable type in declaration list
+	String funcArg = "";
+	String tmpstr = ""; // to store identifier list in function definition 1
+	HashMap<String, String> tmp_map = new HashMap<>();
+	int struct_count = 0;
+	int accept = 0;
+	int array_case2 = 0;
+	int in_param = 0;
+	int simple_block = 0;
+	ArrayList<Integer> st_line_no = new ArrayList<Integer>();
+	String arg_list = "";
+	String funcName = "";
+	String return_type = "";
+	int initializer_list_size = 0;
+	HashMap<String, Integer> complete = new HashMap<>();
+	symTable_h temp_table = new symTable_h();
 
 	private Lexer lexer;
 
-	private String filename;
+	private static String filename;
 
     public Parser(Reader reader)
     {
         lexer = new Lexer(reader);
+
+		complete.put("", 1);
     }
 
     public void yyerror(String msg)
     {
-        System.err.println("Error: " + msg);
+        System.err.println(filename + ":" + (lexer.getlineNum()+1) + ":" + (lexer.getcolNum()+1) + ": " + msg);
+    	// System.err.println("\t" + lexer.semantic.str);
     }
 
     public static void main(String[] argv) {
-        
+
         if (argv.length == 0) {
             System.out.println("Usage : java Parser [ --encoding <name> ] <inputfile(s)>");
         }
         else {
-        int firstFilePos = 0;
-        String encodingName = "UTF-8";
-        if (argv[0].equals("--encoding")) {
-            firstFilePos = 2;
-            encodingName = argv[1];
-            try {
-                // Side-effect: is encodingName valid?
-                java.nio.charset.Charset.forName(encodingName);
-            } catch (Exception e) {
-                System.out.println("Invalid encoding '" + encodingName + "'");
-                return;
-            }
-        }
-        for (int i = firstFilePos; i < argv.length; i++) {
-            try {
-                java.io.FileInputStream stream = new java.io.FileInputStream(argv[i]);
-                java.io.Reader reader = new java.io.InputStreamReader(stream, encodingName);
-                Parser parser = new Parser(reader);
-                parser.lexer.nextToken();
+			int firstFilePos = 0;
+			String encodingName = "UTF-8";
+			if (argv[0].equals("--encoding")) {
+				firstFilePos = 2;
+				encodingName = argv[1];
+				try {
+					// Side-effect: is encodingName valid?
+					java.nio.charset.Charset.forName(encodingName);
+				} catch (Exception e) {
+					System.out.println("Invalid encoding '" + encodingName + "'");
+					return;
+				}
+			}
+			for (int i = firstFilePos; i < argv.length; i++) {
+				try {
+					filename = argv[i];
+					java.io.FileInputStream stream = new java.io.FileInputStream(argv[i]);
+					java.io.Reader reader = new java.io.InputStreamReader(stream, encodingName);
+					Parser parser = new Parser(reader);
+					parser.lexer.nextToken();
 
-				File file = new File("./ast.dot");
-				PrintStream st = new PrintStream(file);
-				System.setOut(st);
-				
-				AST ast = new AST();
-				ast.BeginGraph();
-                parser.parse();
-				ast.EndGraph();
-                // /*
-				// while ( !parser.lexer.getzzAtEOF() ){
-				// 	System.out.println(parser.lexer.nextToken());
-				// 	parser.parse();
-				// }*/
-        		
-            }
-            catch (java.io.FileNotFoundException e) {
-                System.out.println("File not found : \""+argv[i]+"\"");
-            }
-            catch (java.io.IOException e) {
-                System.out.println("IO error scanning file \""+argv[i]+"\"");
-                System.out.println(e);
-            }
-            catch (Exception e) {
-                System.out.println("Unexpected exception:");
-                e.printStackTrace();
-            }
-        }
+					File file = new File("./ast.dot");
+					PrintStream st = new PrintStream(file);
+					System.setOut(st);
+					
+					AST ast = new AST();
+					symtable_2();
+					ast.BeginGraph();
+					parser.parse();
+					ast.EndGraph();
+					fileClose();
+				}
+				catch (java.io.FileNotFoundException e) {
+					System.out.println("File not found : \""+argv[i]+"\"");
+				}
+				catch (java.io.IOException e) {
+					System.out.println("IO error scanning file \""+argv[i]+"\"");
+					System.out.println(e);
+				}
+				catch (Exception e) {
+					System.out.println("Unexpected exception:");
+					e.printStackTrace();
+				}
+			}
         }
     }

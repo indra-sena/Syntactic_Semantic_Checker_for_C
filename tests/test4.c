@@ -1,12 +1,17 @@
+struct abc{
+    int a;
+    struct abc{
+        char c;
+    } b;
+};
+
+int f(char **f, int *t[]){
+    return 1;
+}
+
 int main(){
-    /*typecasting*/
-
-    float a = 1.25;
-    
-    //typecasting from float to int
-    int b = (int)b;
-
-    printf("%d\n", b);
-
+    struct abc p;
+    p.a = 5;
+    p.b.c = 'q';
     return 0;
 }
